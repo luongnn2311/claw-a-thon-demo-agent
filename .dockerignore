@@ -1,0 +1,10 @@
+.venv/
+.env
+.git/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+models/
+data/vector_store/
+output/

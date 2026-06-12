@@ -1,0 +1,5 @@
+source: historical_report
+type: quarterly_summary
+period: Q4-2024
+
+Historical Report Q4 2024: Merchant abuse cases increased 15% YoY. Top fraud vectors: discount stacking (35%), account takeover (28%), merchant collusion (22%). Average investigation time: 3.2 days. Recovery rate: 67% of flagged amounts.
