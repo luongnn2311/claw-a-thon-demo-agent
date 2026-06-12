@@ -279,7 +279,8 @@
 </footer>
 
 <script>
-  const ENDPOINT = 'https://endpoint-6e655273-09b0-4d2f-9a2c-cb90d6e4d8bb.agentbase-runtime.aiplatform.vngcloud.vn';
+  // Empty = relative URL, so it calls /chat on the same server the page was loaded from.
+  const ENDPOINT = '';
 
   let sessionId = null;
   let busy = false;
@@ -338,6 +339,7 @@
       const data = await res.json();
       sessionId = data.done ? null : data.session_id;
 
+      clearInterval(typingEl._timer);
       typingEl.remove();
 
       if (data.report) appendReport(data.report);
@@ -345,6 +347,7 @@
       if (data.done) appendMessage('agent', '');
 
     } catch (err) {
+      clearInterval(typingEl._timer);
       typingEl.remove();
       appendMessage('agent', `⚠️ Error: ${err.message}. Please try again.`);
     }
@@ -394,9 +397,16 @@
       <div class="avatar">🤖</div>
       <div class="bubble">
         <div class="typing"><span></span><span></span><span></span></div>
+        <div id="elapsed" style="font-size:11px;color:var(--text-muted);margin-top:6px;">Analyzing… 0s</div>
       </div>`;
     chat.appendChild(div);
     scrollBottom();
+    let secs = 0;
+    div._timer = setInterval(() => {
+      secs++;
+      const el = div.querySelector('#elapsed');
+      if (el) el.textContent = `Analyzing… ${secs}s`;
+    }, 1000);
     return div;
   }
 
