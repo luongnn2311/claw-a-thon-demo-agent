@@ -36,7 +36,7 @@ def query_user_metrics(start_date: str, end_date: str) -> Dict[str, Any]:
     freq_threshold = max(10, days * 5)
     high_freq = user_stats[user_stats["txn_count"] > freq_threshold]
 
-    user_ids_numeric = user_stats.index.str.extract(r"(\d+)")[0].astype(int)
+    user_ids_numeric = user_stats.index.str.extract(r"(\d+)")[0].astype(int).values
     new_users = user_stats[user_ids_numeric > 4500]
     repeat_users = user_stats[user_stats["txn_count"] >= 3]
 

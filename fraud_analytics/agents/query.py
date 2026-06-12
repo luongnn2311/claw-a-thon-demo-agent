@@ -61,7 +61,8 @@ Rules:
 - Always call query_transaction_summary for the current period.
 - Call the tool(s) most relevant to fraud_pillar.
 - Call query_trend_comparison to show period-over-period change.
-- Do NOT call tools already in already_queried unless retry_count > 0.
+- Do NOT call tools already in already_queried — cached results will be reused automatically.
+- On retry, only call tools NOT yet in already_queried to fill gaps.
 - Stop calling tools once you have enough data (3-5 tool calls is usually sufficient)."""
 
 _MAX_LOOP = 12
@@ -120,15 +121,23 @@ def query_node(state: FraudReportState) -> Dict[str, Any]:
             break
 
         for tc in response.tool_calls:
-            tool_fn = _TOOL_MAP.get(tc["name"])
+            tool_name = tc["name"]
+            # Skip tools already fetched this invocation or in previous runs
+            if tool_name in new_results or tool_name in existing_results:
+                cached = new_results.get(tool_name) or existing_results.get(tool_name)
+                messages.append(
+                    ToolMessage(content=str(cached), tool_call_id=tc["id"])
+                )
+                continue
+            tool_fn = _TOOL_MAP.get(tool_name)
             if tool_fn is None:
-                result = f"Unknown tool: {tc['name']}"
+                result = f"Unknown tool: {tool_name}"
             else:
                 try:
                     result = tool_fn.invoke(tc["args"])
                 except Exception as exc:
                     result = f"Tool error: {exc}"
-            new_results[tc["name"]] = result
+            new_results[tool_name] = result
             messages.append(
                 ToolMessage(content=str(result), tool_call_id=tc["id"])
             )
