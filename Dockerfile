@@ -28,15 +28,11 @@ COPY fraud_analytics/ ./fraud_analytics/
 COPY data/knowledge/  ./data/knowledge/
 COPY main.py .
 COPY server.py .
-
-# ── Build vector store from knowledge docs at image build time ────────────────
-RUN python - <<'EOF'
-from fraud_analytics.knowledge.vector_store import FraudKnowledgeBase
-n = FraudKnowledgeBase().rebuild()
-print(f"Vector store built from {n} documents.")
-EOF
+COPY frontend/ ./frontend/
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
+# Note: vector store is built at container startup (FAISS uses AVX2 which
+# can't run under QEMU during cross-platform build on Apple Silicon).
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
 

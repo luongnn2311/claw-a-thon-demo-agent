@@ -17,7 +17,9 @@ from typing import Optional, Dict, Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 load_dotenv()
@@ -25,6 +27,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="Fraud Analytics Agent", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── Session store ─────────────────────────────────────────────────────────────
 # Tracks per-session state: whether the first invoke has been done and the last
@@ -42,6 +51,16 @@ def _get_or_create_session(session_id: str) -> Dict[str, Any]:
 
 @app.on_event("startup")
 async def startup():
+    log.info("Initializing knowledge base ...")
+    from fraud_analytics.knowledge.vector_store import FraudKnowledgeBase
+    kb = FraudKnowledgeBase()
+    # Build vector store from txt docs if not already persisted
+    import os
+    if not os.path.exists(os.path.join(kb.persist_path, "index.faiss")):
+        n = kb.rebuild()
+        log.info(f"Vector store built from {n} documents.")
+    else:
+        log.info("Vector store loaded from disk.")
     log.info("Warming up fraud analytics graph ...")
     from fraud_analytics.graph.fraud_graph import get_chat_graph
     get_chat_graph()
@@ -63,6 +82,11 @@ class ChatResponse(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@app.get("/", include_in_schema=False)
+def frontend():
+    return FileResponse("frontend/index.html")
+
 
 @app.get("/health")
 def health():
