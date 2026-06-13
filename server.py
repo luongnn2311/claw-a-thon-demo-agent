@@ -99,7 +99,7 @@ def health():
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
+async def chat(req: ChatRequest):
     """
     Send a message to the fraud analytics agent.
 
