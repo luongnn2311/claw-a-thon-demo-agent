@@ -31,8 +31,13 @@ MAX_RETRIEVAL_DOCS: int = int(os.getenv("MAX_RETRIEVAL_DOCS", "5"))
 MAX_VALIDATION_RETRIES: int = int(os.getenv("MAX_VALIDATION_RETRIES", "2"))
 
 
-def get_llm(temperature: float = 0.1):
+DEFAULT_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "2048"))
+
+
+def get_llm(temperature: float = 0.1, max_tokens: int | None = None):
     from langchain_openai import ChatOpenAI
+
+    tokens = max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS
 
     if LLM_PROVIDER == "greennode":
         return ChatOpenAI(
@@ -40,6 +45,7 @@ def get_llm(temperature: float = 0.1):
             api_key=AI_PLATFORM_API_KEY,
             base_url=AI_PLATFORM_BASE_URL,
             temperature=temperature,
+            max_tokens=tokens,
         )
 
     if LLM_PROVIDER == "anthropic":
@@ -48,6 +54,7 @@ def get_llm(temperature: float = 0.1):
             model=ANTHROPIC_MODEL,
             api_key=ANTHROPIC_API_KEY,
             temperature=temperature,
+            max_tokens=tokens,
         )
 
     # openai (standard)
@@ -55,6 +62,7 @@ def get_llm(temperature: float = 0.1):
         model=OPENAI_MODEL,
         api_key=OPENAI_API_KEY,
         temperature=temperature,
+        max_tokens=tokens,
     )
 
 

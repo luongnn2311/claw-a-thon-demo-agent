@@ -55,7 +55,6 @@ async def startup():
     from fraud_analytics.knowledge.vector_store import FraudKnowledgeBase
     kb = FraudKnowledgeBase()
     # Build vector store from txt docs if not already persisted
-    import os
     if not os.path.exists(os.path.join(kb.persist_path, "index.faiss")):
         n = kb.rebuild()
         log.info(f"Vector store built from {n} documents.")

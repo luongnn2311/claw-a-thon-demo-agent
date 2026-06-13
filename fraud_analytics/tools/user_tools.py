@@ -84,7 +84,7 @@ def query_user_discount_behavior(start_date: str, end_date: str) -> Dict[str, An
         total_amount=("amount", "sum"),
         txn_count=("transID", "count"),
     )
-    ud["discount_ratio"] = ud["total_discount"] / ud["total_amount"]
+    ud["discount_ratio"] = ud["total_discount"] / ud["total_amount"].replace(0, float("nan"))
 
     mean_r = float(ud["discount_ratio"].mean())
     std_r = float(ud["discount_ratio"].std())

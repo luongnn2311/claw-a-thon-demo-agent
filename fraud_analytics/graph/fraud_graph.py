@@ -111,7 +111,9 @@ def _build_chat_graph(checkpointer):
         },
     )
     graph.add_edge("human_input", "conversation")
-    graph.add_edge("report", "conversation")
+    # Always pause at human_input after a report — never let conversation
+    # loop back to proceed without the user seeing the report first.
+    graph.add_edge("report", "human_input")
 
     return graph.compile(checkpointer=checkpointer)
 

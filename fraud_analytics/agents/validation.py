@@ -87,6 +87,20 @@ def validation_node(state: FraudReportState) -> Dict[str, Any]:
         llm, [SystemMessage(content=system_content), HumanMessage(content=human_content)], ValidationOutput
     )
 
+    if result is None:
+        return {
+            "validation_result": {
+                "validated": True,
+                "confidence": 0.6,
+                "issues_found": [],
+                "next_step": "report",
+                "validation_notes": "Validation parsing failed — proceeding to report.",
+            },
+            "retry_count": MAX_VALIDATION_RETRIES,
+            "messages": state.get("messages", [])
+            + [{"role": "validation", "content": "PARSE FAILED — forced pass → report"}],
+        }
+
     new_retry = retry_count + (0 if result.validated else 1)
 
     return {

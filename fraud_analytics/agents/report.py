@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any
 from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -18,41 +19,31 @@ Requirements:
 - Use plain business language, no jargon
 - Format as markdown"""
 
-_DETAIL_SYSTEM = """You are generating a complete Fraud Analytics Report for the fraud operations team.
-
-Audience: Fraud analysts, risk operations, compliance.
-
-You MUST produce all 7 sections in markdown. Use specific numbers everywhere.
+_DETAIL_SYSTEM = """You are generating a Fraud Analytics Report for the fraud operations team.
 
 # Fraud Analytics Report — {title}
 **Period:** {start_date} → {end_date} | **Generated:** {generated_at}
 
----
+Produce these 5 sections in markdown. Be concise — 2-4 sentences per section max.
 
 ## 1. Overview
-(Transaction volume, total amount, success rate, key period metrics)
+Key volume, amount, success rate metrics only.
 
 ## 2. Key Findings
-(Numbered list with severity badges: 🔴 Critical | 🟠 High | 🟡 Medium | 🟢 Low)
+Numbered list with severity badge (🔴🟠🟡🟢) and one sentence each.
 
-## 3. Fraud Indicators by Pillar
-(Organized by fraud dimension with supporting metrics)
+## 3. Fraud Indicators
+Bullet points per pillar with the single most important metric.
 
-## 4. Supporting Evidence
-(Specific data points, percentages, Z-scores, thresholds breached)
+## 4. Risk Assessment
+Markdown table: Pillar | Likelihood | Impact | Overall
 
-## 5. Risk Assessment
-(Risk matrix table — pillar × likelihood × impact × overall)
-
-## 6. Recommendations
-(Minimum 5 specific, actionable operational steps with owner and timeline)
-
-## 7. Appendix — Key Query Results
-(2-3 important raw figures from the data queries)"""
+## 5. Top 3 Recommendations
+Numbered. One action sentence each with owner and timeline."""
 
 
 def report_node(state: FraudReportState) -> Dict[str, Any]:
-    llm = get_llm(temperature=0.4)
+    llm = get_llm(temperature=0.4, max_tokens=2000)
 
     findings = state.get("findings") or []
     validation = state.get("validation_result") or {}
@@ -68,16 +59,8 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
             f"REPORT TYPE: {report_type} | PILLAR: {pillar}",
             f"PERIOD: {dr.get('start')} to {dr.get('end')}",
             f"VALIDATION CONFIDENCE: {validation.get('confidence', 'N/A')}",
-            f"FINDINGS ({len(findings)}):\n{json.dumps(findings, indent=2, default=str)[:3000]}",
-            f"DATA SUMMARIES:\n" + "\n".join(summaries[:8]),
-            f"QUERY SNAPSHOT:\n{json.dumps(dict(list(query_results.items())[:3]), indent=2, default=str)[:2000]}",
-        ]
-    )
-
-    exec_resp = llm.invoke(
-        [
-            SystemMessage(content=_EXEC_SYSTEM),
-            HumanMessage(content=f"Generate executive summary:\n\n{context}"),
+            f"FINDINGS ({len(findings)}):\n{json.dumps(findings, indent=2, default=str)[:1500]}",
+            f"DATA SUMMARIES:\n" + "\n".join(summaries[:5]),
         ]
     )
 
@@ -88,12 +71,41 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
         end_date=dr.get("end", "N/A"),
         generated_at=generated_at,
     )
-    detail_resp = llm.invoke(
-        [
+
+    import time
+    _req_count = 0
+
+    def _exec():
+        nonlocal _req_count
+        t0 = time.time()
+        _req_count += 1
+        print(f"  [report] req#{_req_count} exec_summary START", flush=True)
+        r = llm.invoke([
+            SystemMessage(content=_EXEC_SYSTEM),
+            HumanMessage(content=f"Generate executive summary:\n\n{context}"),
+        ])
+        print(f"  [report] req#1 exec_summary DONE in {time.time()-t0:.1f}s", flush=True)
+        return r
+
+    def _detail():
+        nonlocal _req_count
+        t0 = time.time()
+        _req_count += 1
+        print(f"  [report] req#{_req_count} detail_report START", flush=True)
+        r = llm.invoke([
             SystemMessage(content=detail_system),
             HumanMessage(content=f"Generate the complete analyst report:\n\n{context}"),
-        ]
-    )
+        ])
+        print(f"  [report] req#2 detail_report DONE in {time.time()-t0:.1f}s", flush=True)
+        return r
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_exec = pool.submit(_exec)
+        f_detail = pool.submit(_detail)
+        exec_resp = f_exec.result()
+        detail_resp = f_detail.result()
+
+    print(f"  [report] total LLM requests: {_req_count}", flush=True)
 
     validation_banner = (
         "✅ VALIDATED" if validation.get("validated") else "⚠️  PARTIAL VALIDATION"

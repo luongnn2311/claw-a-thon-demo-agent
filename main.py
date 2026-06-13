@@ -14,6 +14,23 @@ import sys
 from datetime import datetime
 
 
+def _stream_graph(graph, input_, config) -> dict:
+    """Run graph with streaming. Prints each node name + wall-clock time once."""
+    seen: set = set()
+    merged: dict = {}
+    for chunk in graph.stream(input_, config, stream_mode="updates"):
+        if "__interrupt__" in chunk:
+            break  # graph paused at interrupt — stop streaming
+        for node_name, updates in chunk.items():
+            if node_name not in seen:
+                ts = datetime.now().strftime("%H:%M:%S")
+                print(f"  [{ts}] {node_name}", flush=True)
+                seen.add(node_name)
+            if isinstance(updates, dict):
+                merged.update(updates)
+    return merged
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def save_report(report: str) -> str:
@@ -61,7 +78,7 @@ def run_fraud_analysis(user_request: str, verbose: bool = True) -> str:
     if verbose:
         print("Running pipeline ...\n")
 
-    final_state = graph.invoke(initial_state, config={"recursion_limit": 30})
+    final_state = _stream_graph(graph, initial_state, {"recursion_limit": 30})
 
     if verbose:
         print("\nAgent execution trace:")
@@ -108,7 +125,7 @@ def run_chat() -> None:
     seen_report = ""
 
     # ── First invocation ──────────────────────────────────────────────────────
-    state = graph.invoke(initial_state, config)
+    state = _stream_graph(graph, initial_state, config)
 
     while True:
         # Show any new report
@@ -138,7 +155,7 @@ def run_chat() -> None:
             break
 
         # Resume the graph with the user's response
-        state = graph.invoke(Command(resume=user_input), config)
+        state = _stream_graph(graph, Command(resume=user_input), config)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
