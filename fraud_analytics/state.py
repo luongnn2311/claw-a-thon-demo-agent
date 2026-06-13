@@ -14,6 +14,8 @@ class FraudReportState(TypedDict, total=False):
     validation_result: Dict[str, Any]
     final_report: str
     retry_count: int
+    total_node_visits: int      # circuit breaker counter
+    pipeline_start_time: float  # unix timestamp set by orchestrator
     messages: List[Dict[str, str]]
     # Conversation layer
     conversation_history: List[Dict[str, str]]  # full chat transcript

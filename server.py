@@ -12,8 +12,13 @@ from __future__ import annotations
 
 import os
 import uuid
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, Any
+
+_executor = ThreadPoolExecutor(max_workers=10)
+SERVER_TIMEOUT: int = int(os.getenv("SERVER_TIMEOUT_SECONDS", "150"))
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -105,12 +110,25 @@ def chat(req: ChatRequest):
     from fraud_analytics.graph.fraud_graph import get_chat_graph, make_chat_config
     from langgraph.types import Command
 
+    _QUIT_WORDS = {"exit", "quit", "bye", "goodbye", "stop", "end", "no", "done", "thoát", "kết thúc"}
+
     session_id = req.session_id or str(uuid.uuid4())
     session = _get_or_create_session(session_id)
+
+    # Short-circuit quit keywords on an active session — no LLM call needed
+    if session["started"] and req.message.strip().lower() in _QUIT_WORDS:
+        _sessions.pop(session_id, None)
+        return ChatResponse(
+            session_id=session_id,
+            response="Session ended. Goodbye!",
+            report="",
+            done=True,
+        )
+
     graph = get_chat_graph()
     config = make_chat_config(session_id)
 
-    try:
+    def _invoke():
         if not session["started"]:
             initial_state = {
                 "user_request": req.message,
@@ -118,11 +136,26 @@ def chat(req: ChatRequest):
                 "retry_count": 0,
                 "messages": [],
             }
-            state = graph.invoke(initial_state, config)
+            result = graph.invoke(initial_state, config)
             session["started"] = True
-        else:
-            state = graph.invoke(Command(resume=req.message), config)
+            return result
+        return graph.invoke(Command(resume=req.message), config)
 
+    try:
+        loop = asyncio.get_event_loop()
+        state = await asyncio.wait_for(
+            loop.run_in_executor(_executor, _invoke),
+            timeout=SERVER_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        log.warning("Session %s timed out after %ds", session_id, SERVER_TIMEOUT)
+        _sessions.pop(session_id, None)
+        return ChatResponse(
+            session_id=session_id,
+            response=f"⏱️ Request timed out after {SERVER_TIMEOUT}s. Please try a simpler request.",
+            report="",
+            done=True,
+        )
     except Exception as exc:
         log.exception("Graph error for session %s", session_id)
         _sessions.pop(session_id, None)

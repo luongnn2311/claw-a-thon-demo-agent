@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 from fraud_analytics.state import FraudReportState
@@ -10,11 +11,26 @@ from fraud_analytics.agents.reasoning import reasoning_node
 from fraud_analytics.agents.validation import validation_node
 from fraud_analytics.agents.report import report_node
 from fraud_analytics.config import MAX_VALIDATION_RETRIES
+from fraud_analytics.utils.circuit_breaker import check_circuit_breaker
+
+
+# ── Node visit tracker ────────────────────────────────────────────────────────
+
+def _tracked(node_fn):
+    """Wrap a node to increment the visit counter."""
+    def wrapper(state: FraudReportState) -> Dict[str, Any]:
+        result = node_fn(state)
+        result["total_node_visits"] = state.get("total_node_visits", 0) + 1
+        return result
+    wrapper.__name__ = node_fn.__name__
+    return wrapper
 
 
 # ── Shared routing ────────────────────────────────────────────────────────────
 
 def _route_after_validation(state: FraudReportState) -> str:
+    if check_circuit_breaker(state):
+        return "report"
     retry_count = state.get("retry_count", 0)
     if retry_count >= MAX_VALIDATION_RETRIES:
         return "report"
@@ -53,11 +69,11 @@ def _human_input_node(state: FraudReportState) -> Dict[str, Any]:
 def _add_pipeline(graph: StateGraph) -> None:
     """Register analysis pipeline nodes and their fixed edges."""
     graph.add_node("orchestrator", orchestrator_node)
-    graph.add_node("retrieval", retrieval_node)
-    graph.add_node("query", query_node)
-    graph.add_node("summarizer", summarizer_node)
-    graph.add_node("reasoning", reasoning_node)
-    graph.add_node("validation", validation_node)
+    graph.add_node("retrieval", _tracked(retrieval_node))
+    graph.add_node("query", _tracked(query_node))
+    graph.add_node("summarizer", _tracked(summarizer_node))
+    graph.add_node("reasoning", _tracked(reasoning_node))
+    graph.add_node("validation", _tracked(validation_node))
     graph.add_node("report", report_node)
 
     graph.add_edge("orchestrator", "retrieval")

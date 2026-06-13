@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 from typing import Dict, Any
 from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -48,6 +49,8 @@ def orchestrator_node(state: FraudReportState) -> Dict[str, Any]:
         "date_range": {"start": result.date_range.start, "end": result.date_range.end},
         "fraud_pillar": result.fraud_pillar,
         "retry_count": 0,
+        "total_node_visits": 1,
+        "pipeline_start_time": time.time(),
         "messages": state.get("messages", [])
         + [
             {
