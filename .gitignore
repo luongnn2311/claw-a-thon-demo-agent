@@ -8,3 +8,4 @@ output/
 *.egg-info/
 .idea/
 models/
+.agentbase/

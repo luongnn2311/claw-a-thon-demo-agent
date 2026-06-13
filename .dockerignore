@@ -8,3 +8,4 @@ __pycache__/
 models/
 data/vector_store/
 output/
+.agentbase/
