@@ -2,7 +2,7 @@
 
 A production-grade multi-agent fraud assistant built with **LangGraph** for ZaloPay. The agent acts as a domain expert — it can answer general fraud questions, retrieve domain knowledge, and generate detailed fraud analysis reports through a conversational interface.
 
-**Live demo:** `https://endpoint-6e655273-09b0-4d2f-9a2c-cb90d6e4d8bb.agentbase-runtime.aiplatform.vngcloud.vn`
+**Live demo:** *(endpoint URL available on GreenNode AgentBase console)*
 
 ---
 
@@ -261,15 +261,15 @@ bash ~/.claude/skills/agentbase/scripts/cr.sh credentials docker-login
 # 2. Build for linux/amd64
 TAG="v$(date +%Y%m%d%H%M%S)"
 docker build --platform linux/amd64 \
-  -t vcr.vngcloud.vn/111480-abp111980/claw-a-thon-demo-agent:$TAG .
+  -t vcr.vngcloud.vn/<your-repo>/claw-a-thon-demo-agent:$TAG .
 
 # 3. Push
-docker push vcr.vngcloud.vn/111480-abp111980/claw-a-thon-demo-agent:$TAG
+docker push vcr.vngcloud.vn/<your-repo>/claw-a-thon-demo-agent:$TAG
 
 # 4. Update runtime
 bash ~/.claude/skills/agentbase/scripts/runtime.sh update \
-  runtime-357a5879-1fa1-4245-be42-4030d6569b60 \
-  --image vcr.vngcloud.vn/111480-abp111980/claw-a-thon-demo-agent:$TAG \
+  <your-runtime-id> \
+  --image vcr.vngcloud.vn/<your-repo>/claw-a-thon-demo-agent:$TAG \
   --flavor runtime-s2-general-4x8 \
   --env-file .env \
   --from-cr
