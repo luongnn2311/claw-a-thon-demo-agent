@@ -308,11 +308,17 @@
   let sessionId = null;
   marked.use({ gfm: true, breaks: false });
 
-  // Ensure a blank line before list items so marked recognises them as <ul>/<ol>
+  // Normalise LLM text so marked.js detects lists and paragraphs correctly
   function prepareMarkdown(text) {
     return text
-      .replace(/([^\n])\n([ \t]*[-*+] )/g, '$1\n\n$2')   // blank line before unordered list
-      .replace(/([^\n])\n([ \t]*\d+\. )/g, '$1\n\n$2');  // blank line before ordered list
+      // Insert blank line before unordered list items not already preceded by one
+      .replace(/([^\n])\n([ \t]*[-*+] )/g, '$1\n\n$2')
+      // Insert blank line before ordered list items not already preceded by one
+      .replace(/([^\n])\n([ \t]*\d+\. )/g, '$1\n\n$2')
+      // Handle INLINE numbered lists: "text: 1. Item 2. Item" → newlines before each item
+      .replace(/([.!?:])\s+(\d+\.\s)/g, '$1\n\n$2')
+      // Handle consecutive inline numbered items: "...detail. 2. Next" → newline
+      .replace(/([a-z)\]])\.?\s{1,2}(\d{1,2}\.\s+[A-Z*])/g, '$1.\n\n$2');
   }
 
   let busy = false;

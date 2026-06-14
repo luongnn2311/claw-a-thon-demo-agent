@@ -100,6 +100,11 @@ Here's what I can do for you:
 What would you like to explore today?"""
 
 
+_GREETINGS = {
+    "hello", "hi", "hey", "xin chào", "chào", "chào bạn", "chào anh", "chào chị",
+    "yo", "sup", "howdy", "good morning", "good afternoon", "good evening",
+}
+
 def conversation_node(state: FraudReportState) -> Dict[str, Any]:
     today = datetime.now().strftime("%Y-%m-%d")
     history = list(state.get("conversation_history") or [])
@@ -112,6 +117,16 @@ def conversation_node(state: FraudReportState) -> Dict[str, Any]:
             "next_action": "clarify",
             "agent_message": _WELCOME,
             "conversation_history": [{"role": "assistant", "content": _WELCOME}],
+        }
+
+    # Pure greeting on first message — skip LLM, return welcome instantly
+    if user_request.lower().rstrip("!.,?") in _GREETINGS and len(history) <= 2:
+        updated_history = list(history)
+        updated_history.append({"role": "assistant", "content": _WELCOME})
+        return {
+            "next_action": "clarify",
+            "agent_message": _WELCOME,
+            "conversation_history": updated_history,
         }
 
     llm = get_llm(temperature=0.1)
