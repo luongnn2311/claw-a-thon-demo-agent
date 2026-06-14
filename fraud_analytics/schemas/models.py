@@ -26,18 +26,18 @@ class Finding(BaseModel):
     title: str = Field(description="Short title of the finding")
     finding: str = Field(description="Detailed description with specific numbers")
     evidence: List[str] = Field(description="Supporting data points and metrics")
-    severity: Literal["low", "medium", "high", "critical"] = Field(
-        description="Severity level"
+    severity: Literal["CRITICAL", "ALERT", "WATCH", "STABLE"] = Field(
+        description="ZaloPay priority label: CRITICAL=same-day, ALERT=24h, WATCH=this week, STABLE=monitor"
     )
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence score 0-1")
     pillar: str = Field(description="Fraud pillar this finding relates to")
-    recommended_action: str = Field(description="Specific operational action to take")
+    recommended_action: str = Field(description="Specific ZaloPay operational action to take")
 
 
 class FraudAnalysisOutput(BaseModel):
     findings: List[Finding] = Field(description="List of identified fraud findings")
-    overall_risk_level: Literal["low", "medium", "high", "critical"] = Field(
-        description="Overall risk level for the period"
+    overall_risk_level: Literal["CRITICAL", "ALERT", "WATCH", "STABLE"] = Field(
+        description="Overall risk level for the period using ZaloPay priority labels"
     )
     summary: str = Field(description="One-paragraph executive summary of fraud analysis")
 

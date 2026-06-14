@@ -37,15 +37,36 @@ def _read_csv(name: str) -> pd.DataFrame:
     return df
 
 
+def _month_period_end(month_str: str, today: pd.Timestamp) -> str:
+    """Return the period end for a month label 'YYYY-MM'.
+    Current month → today's date.  Past months → last day of that month."""
+    y, m = int(month_str[:4]), int(month_str[5:7])
+    if y == today.year and m == today.month:
+        return today.strftime("%Y-%m-%d")
+    # last day of month
+    last = pd.Timestamp(year=y, month=m, day=1) + pd.offsets.MonthEnd(1)
+    return last.strftime("%Y-%m-%d")
+
+
 def run_pipeline(start_date: str | None = None, end_date: str | None = None) -> Dict[str, Any]:
     """
     Run the full pipeline and return a dict with 5 DataFrames serialised as
     JSON-compatible records plus a 'success' flag.
 
+    Weekly periods  = complete ISO weeks (Mon–Sun); the current partial week
+                      is excluded.
+    Monthly periods = full calendar months; the current month is cut at today.
+
     Args:
         start_date: ISO date string YYYY-MM-DD (optional filter)
         end_date:   ISO date string YYYY-MM-DD (optional filter)
     """
+    # ── Calendar anchors ─────────────────────────────────────────────────────
+    today = pd.Timestamp.now().normalize()
+    # Last complete Monday-to-Sunday week
+    last_complete_sunday = today - pd.to_timedelta(today.dayofweek + 1, unit="D")
+    last_complete_monday = last_complete_sunday - pd.to_timedelta(6, unit="D")
+
     # ── Load inputs ───────────────────────────────────────────────────────────
     df_pom_wallet   = _read_csv("raw_post_mortem_account_risk.csv")
     df_pom_gateway  = _read_csv("raw_post_mortem_account_risk_gateway.csv")
@@ -112,11 +133,24 @@ def run_pipeline(start_date: str | None = None, end_date: str | None = None) -> 
         monthly_pivot["international_pct"] = (
             monthly_pivot["international_loss"] / monthly_pivot["total_loss"].replace(0, float("nan")) * 100
         ).round(1).fillna(0)
+        # Period bounds — current month ends today; past months end on their last day
+        monthly_pivot["period_start"] = monthly_pivot["month"] + "-01"
+        monthly_pivot["period_end"]   = monthly_pivot["month"].apply(
+            lambda m: _month_period_end(m, today)
+        )
+        monthly_pivot["is_partial"] = monthly_pivot["month"].apply(
+            lambda m: int(m == today.strftime("%Y-%m"))
+        )
         results["fraud_monthly_loss"] = monthly_pivot.to_dict(orient="records")
 
-        # ── TABLE 2 — Fraud Weekly Loss ────────────────────────────────────────
+        # ── TABLE 2 — Fraud Weekly Loss (complete Mon–Sun weeks only) ───────────
+        # Exclude the current partial week
+        pom_complete_weeks = pom_all[
+            pd.to_datetime(pom_all["week_start"]) <= last_complete_monday
+        ].copy()
+
         weekly_pivot = (
-            pom_all.groupby(["week_start", "segment"])["loss_M"]
+            pom_complete_weeks.groupby(["week_start", "segment"])["loss_M"]
             .sum()
             .unstack(fill_value=0)
             .reset_index()
@@ -140,6 +174,10 @@ def run_pipeline(start_date: str | None = None, end_date: str | None = None) -> 
         weekly_pivot["WoW_pct_change"] = (
             weekly_pivot["total_loss"].pct_change().fillna(0).mul(100).round(1)
         )
+        # Add week_end (Sunday) for clarity
+        weekly_pivot["week_end"] = (
+            pd.to_datetime(weekly_pivot["week_start"]) + pd.to_timedelta(6, unit="D")
+        ).dt.strftime("%Y-%m-%d")
         results["fraud_weekly_loss"] = weekly_pivot.to_dict(orient="records")
 
         # ── Normalise TPE + abuser join ────────────────────────────────────────
@@ -171,14 +209,18 @@ def run_pipeline(start_date: str | None = None, end_date: str | None = None) -> 
         if end_date:
             tpe_joined = tpe_joined[tpe_joined["reqDate"] <= end_date]
 
-        # ── TABLE 3 — Promo Weekly Abuse ──────────────────────────────────────
+        # ── TABLE 3 — Promo Weekly Abuse (complete Mon–Sun weeks only) ──────────
+        tpe_complete_weeks = tpe_joined[
+            pd.to_datetime(tpe_joined["week_start"]) <= last_complete_monday
+        ].copy()
+
         promo_weekly = (
-            tpe_joined.groupby("week_start")
+            tpe_complete_weeks.groupby("week_start")
             .agg(
                 total_spending=("amount", "sum"),
                 total_abuse=("abuse_amt", "sum"),
                 total_abuser_users=("userID", lambda x: (
-                    tpe_joined.loc[x.index[tpe_joined.loc[x.index, "isEstAbuser"] == 1], "userID"].nunique()
+                    tpe_complete_weeks.loc[x.index[tpe_complete_weeks.loc[x.index, "isEstAbuser"] == 1], "userID"].nunique()
                 )),
             )
             .reset_index()
@@ -191,6 +233,9 @@ def run_pipeline(start_date: str | None = None, end_date: str | None = None) -> 
         promo_weekly["abuse_trend"] = (
             promo_weekly["total_abuse"].pct_change().fillna(0).round(3)
         )
+        promo_weekly["week_end"] = (
+            pd.to_datetime(promo_weekly["week_start"]) + pd.to_timedelta(6, unit="D")
+        ).dt.strftime("%Y-%m-%d")
         results["promo_weekly_abuse"] = promo_weekly.to_dict(orient="records")
 
         # ── TABLE 4 — Coin2DD Monthly ──────────────────────────────────────────
@@ -213,6 +258,13 @@ def run_pipeline(start_date: str | None = None, end_date: str | None = None) -> 
             coin2dd["total_abuse"] / coin2dd["total_discount"].replace(0, float("nan")) * 100
         ).round(2).fillna(0)
         coin2dd["MoM_abuse_change"] = coin2dd["total_abuse"].diff().fillna(0).astype(int)
+        coin2dd["period_start"] = coin2dd["month"] + "-01"
+        coin2dd["period_end"]   = coin2dd["month"].apply(
+            lambda m: _month_period_end(m, today)
+        )
+        coin2dd["is_partial"] = coin2dd["month"].apply(
+            lambda m: int(m == today.strftime("%Y-%m"))
+        )
         results["coin2dd_monthly"] = coin2dd.to_dict(orient="records")
 
         # ── TABLE 5 — AppID Fraud Breakdown ────────────────────────────────────

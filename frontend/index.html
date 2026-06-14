@@ -101,6 +101,15 @@
       line-height: 1.6;
       max-width: 680px;
     }
+    /* markdown elements inside agent bubbles */
+    .msg.agent .bubble p        { margin: 0 0 8px; }
+    .msg.agent .bubble p:last-child { margin-bottom: 0; }
+    .msg.agent .bubble ul,
+    .msg.agent .bubble ol       { margin: 4px 0 8px 20px; padding: 0; }
+    .msg.agent .bubble li       { margin-bottom: 4px; }
+    .msg.agent .bubble strong   { color: var(--text); }
+    .msg.agent .bubble code     { background: var(--surface2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+    .msg.agent .bubble h1,.msg.agent .bubble h2,.msg.agent .bubble h3 { margin: 10px 0 4px; font-size: 14px; }
     .msg.user .bubble {
       background: var(--user-bubble);
       border-radius: 14px 4px 14px 14px;
