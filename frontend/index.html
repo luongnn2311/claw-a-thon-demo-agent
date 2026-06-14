@@ -306,7 +306,15 @@
   const ENDPOINT = '';
 
   let sessionId = null;
-  marked.use({ breaks: true });
+  marked.use({ gfm: true, breaks: false });
+
+  // Ensure a blank line before list items so marked recognises them as <ul>/<ol>
+  function prepareMarkdown(text) {
+    return text
+      .replace(/([^\n])\n([ \t]*[-*+] )/g, '$1\n\n$2')   // blank line before unordered list
+      .replace(/([^\n])\n([ \t]*\d+\. )/g, '$1\n\n$2');  // blank line before ordered list
+  }
+
   let busy = false;
 
   const chat   = document.getElementById('chat');
@@ -389,7 +397,7 @@
     if (!text) return;
     const div = document.createElement('div');
     div.className = `msg ${role}`;
-    const content = role === 'agent' ? marked.parse(text) : escapeHtml(text);
+    const content = role === 'agent' ? marked.parse(prepareMarkdown(text)) : escapeHtml(text);
     div.innerHTML = `
       <div class="avatar">${role === 'user' ? '👤' : '🤖'}</div>
       <div class="bubble">${content}</div>`;
