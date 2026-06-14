@@ -19,6 +19,7 @@ from fraud_analytics.tools.analysis import (
     analyze_fraud_monthly, analyze_fraud_weekly,
     analyze_promo_weekly, analyze_coin2dd, analyze_appid_breakdown,
 )
+from fraud_analytics.knowledge.web_enrichment import search_web
 
 # ── Light tools available to followup (no full pipeline re-run) ───────────────
 
@@ -61,6 +62,25 @@ def get_raw_table(table_name: str) -> list:
     data = r.get(table_name, [])
     return data[-10:] if data else []  # return last 10 rows
 
+@tool
+def search_fintech_web(query: str) -> list:
+    """Search the internet for fintech / payment fraud risk knowledge.
+
+    ONLY call this when the existing report, findings, and domain knowledge
+    are NOT sufficient to answer the question — for example, the user asks
+    about an industry concept, regulation, or attack technique not covered
+    in the local knowledge base.
+
+    DO NOT call this if the local knowledge already covers the topic.
+    Results are supplementary context — synthesise them into your answer,
+    never quote them verbatim.
+
+    Args:
+        query: concise search phrase (e.g. "3DS2 liability shift card fraud",
+               "CNP fraud prevention techniques", "VAMP Visa acquirer program")
+    """
+    return search_web(query, max_results=3)
+
 _FOLLOWUP_TOOLS = [
     get_fraud_monthly_detail,
     get_fraud_weekly_detail,
@@ -68,22 +88,27 @@ _FOLLOWUP_TOOLS = [
     get_coin2dd_detail,
     get_appid_detail,
     get_raw_table,
+    search_fintech_web,
 ]
 _TOOL_MAP = {t.name: t for t in _FOLLOWUP_TOOLS}
 
 _SYSTEM = """You are a ZaloPay Risk Analyst answering a follow-up question about a fraud report.
 
-Answer the question using:
-1. The existing report and findings in context (primary source)
-2. Retrieved domain knowledge (for thresholds, patterns, terminology)
-3. Call a tool ONLY if the answer requires live data not already in the report
+TOOL USAGE RULES — follow strictly:
+1. data tools (get_fraud_monthly_detail, get_raw_table, etc.)
+   → call ONLY when the question asks for specific numbers/tables not in the existing report
+2. search_fintech_web
+   → call ONLY when BOTH of these are true:
+      a. The question is about an industry concept, regulation, or technique
+      b. The existing report + domain knowledge below do NOT adequately cover it
+   → NEVER call if the local knowledge already answers the question
+   → Use web results as background context to enrich your answer — never quote them directly
 
-Answer rules:
-- Be concise and direct — 3-8 sentences unless a table or list is needed
+ANSWER RULES:
+- Be concise — 3-8 sentences unless a table is genuinely needed
 - Always cite specific numbers from the report or tool output
-- If you reference a pattern (e.g. Campaign Splitting), explain it briefly
 - Use ZaloPay priority labels (CRITICAL / ALERT / WATCH / STABLE) when relevant
-- If the question cannot be answered from available data, say so clearly
+- If something truly cannot be answered from any available source, say so clearly
 
 Context available:
 EXISTING REPORT (excerpt):
