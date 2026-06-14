@@ -1,139 +1,136 @@
-# Fraud Analytics Agent
+# ZaloPay Fraud Analytics Assistant
 
-A production-grade multi-agent system built with **LangGraph** that analyzes transaction data and generates detailed fraud reports through a conversational interface.
-
----
-
-## Overview
-
-The agent accepts natural language requests like _"Give me the weekly fraud report for last week, focusing on discount abuse"_ and autonomously runs a 7-agent pipeline to retrieve knowledge, query data, reason about findings, validate them, and produce a structured report — all while maintaining a multi-turn conversation.
+A production-grade multi-agent fraud assistant built with **LangGraph** for ZaloPay. The agent acts as a domain expert — it can answer general fraud questions, retrieve domain knowledge, and generate detailed fraud analysis reports through a conversational interface.
 
 **Live demo:** `https://endpoint-6e655273-09b0-4d2f-9a2c-cb90d6e4d8bb.agentbase-runtime.aiplatform.vngcloud.vn`
 
 ---
 
+## Overview
+
+The assistant has two operating modes:
+
+| Mode | Trigger | Behaviour |
+|---|---|---|
+| **Q&A / Chat** | Any question, domain query, data lookup | Answered directly using knowledge base + data tools + optional web search. No pipeline run. |
+| **Report Generation** | Explicit report request ("generate a report for…") | Runs the full 7-agent analysis pipeline and produces a structured fraud report. |
+
+On first entry the assistant shows a welcome screen listing all available report domains and quick-action chips.
+
+---
+
+## Report Domains
+
+| Domain | Description |
+|---|---|
+| `fraud_loss` | Monthly + weekly loss by segment (domestic, international, VNPAY, domestic-card…) |
+| `promo_abuse` | Promo abuse rate, BAD_V2 / FAD detection effectiveness |
+| `coin2dd` | Coin-to-Direct-Debit abuse analysis |
+| `appid_breakdown` | Fraud breakdown by merchant / appID |
+| `general` | Full overview across all domains above |
+
+---
+
 ## Architecture
-
-### Agent Pipeline
-
-```
-User Request
-     │
-     ▼
-┌─────────────┐     clarify/follow_up     ┌─────────────┐
-│Conversation │ ◄────────────────────────► │ Human Input │
-│   Manager   │                            │  (interrupt)│
-└─────────────┘                            └─────────────┘
-     │ proceed
-     ▼
-┌─────────────┐
-│Orchestrator │  Parses intent → report_type, fraud_pillar, date_range
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  Retrieval  │  Searches FAISS vector store for relevant fraud policies/SOPs
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│    Query    │  Executes 9 data tools (transactions, merchants, users)
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ Summarizer  │  Converts raw query results into business-readable summaries
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  Reasoning  │  Identifies fraud findings with severity and evidence
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐     retry (query/retrieval)
-│ Validation  │ ──────────────────────────►  loop back if findings are weak
-└──────┬──────┘
-       │ pass
-       ▼
-┌─────────────┐
-│   Report    │  Generates executive summary + 7-section analyst report
-└──────┬──────┘
-       │
-       ▼
-Conversation Manager  →  offers follow-up or ends session
-```
 
 ### Conversation Flow
 
-The **Conversation Manager** decides after every user message:
+```
+User Message
+     │
+     ▼
+┌──────────────────┐
+│  Conversation    │  First entry → welcome + domain list
+│    Manager       │  General question  → answer (followup node)
+└────────┬─────────┘  Explicit report   → proceed (full pipeline)
+         │             Ambiguous         → clarify (recommend domains)
+    ┌────┴────┬──────────────┐
+    ▼         ▼              ▼
+ proceed    answer         clarify
+    │         │              │
+    ▼         ▼              ▼
+Full      Followup       Human Input
+Pipeline    Node          (interrupt)
+    │         │              │
+    │    (answers from       └──► Conversation Manager
+    │   knowledge + data          (next turn)
+    │   tools + web search)
+    ▼
+Human Input (interrupt — follow-up or new request)
+```
 
-| Decision | Behaviour |
-|---|---|
-| `proceed` | Run the full fraud analysis pipeline |
-| `clarify` | Ask the user a focused question before running |
-| `follow_up` | After a report, offer to do more analysis |
-| `end` | Gracefully close the session |
+### Full Report Pipeline
+
+```
+Orchestrator  →  Retrieval  →  Query  →  Summarizer  →  Reasoning  →  Validation  →  Report
+     │               │            │            │               │             │            │
+  Parses         FAISS         Pandas       Converts       ZaloPay       Validates    Produces
+  intent &      vector        pipeline     analysis       decision      findings    exec summary
+  maps to       store         + suggest_*  outputs to     trees +       (retries    + analyst
+  tables        lookup        tools        narrative      severity      if weak)    report
+```
 
 ---
 
-## Fraud Pillars
+## Data Pipeline
 
-The agent can analyse any of these fraud dimensions:
+Reads from `projectF/data input/` CSVs and produces 5 output tables:
 
-| Pillar | Description |
+| Table | Description |
 |---|---|
-| **Merchant Abuse** | Volume spikes, concentration risk, collusion signals |
-| **Discount Abuse** | Promo code stacking, high discount ratios, coordinated abuse |
-| **User Abuse** | High-frequency users, account farming, ATO signals |
-| **Payment Risk** | Failure rate anomalies, card testing, BIN-level patterns |
-| **Volume Risk** | Z-score spikes, synthetic transaction rings, bot activity |
+| `fraud_monthly_loss` | MoM fraud loss by segment |
+| `fraud_weekly_loss` | WoW fraud loss by segment |
+| `promo_weekly_abuse` | Weekly promo abuse + detection metrics |
+| `coin2dd_monthly` | Monthly Coin2DD abuse by category |
+| `appid_fraud_breakdown` | Fraud by appID / merchant with MoM comparison |
+
+Segment mapping: `454` → domestic_direct · `9999` → international · `1002` → domestic_card · `1023` → VNPAY · `7022` → domestic_wallet
 
 ---
 
-## Data Tools
+## Analysis Tools
 
-9 LangChain tools available to the Query agent:
+Deterministic `suggest_*` functions produce structured findings (no LLM) before the LLM writes the narrative:
 
-| Tool | Data Returned |
+| Tool | Output |
 |---|---|
-| `query_transaction_summary` | Volume, amount, success/failure rates, avg/median value |
-| `query_discount_analysis` | Discount ratio per merchant, top abusers, leakage |
-| `query_payment_solution_breakdown` | Success rate by payment solution (pmcID) |
-| `query_trend_comparison` | Current vs previous period delta |
-| `query_daily_volume_anomalies` | Z-score per day, anomaly flags |
-| `query_merchant_metrics` | Top merchants by volume, count, discount |
-| `query_merchant_new_vs_existing` | New vs existing merchant share |
-| `query_user_metrics` | Top users by transaction count/amount |
-| `query_user_discount_behavior` | Users with highest discount ratios |
+| `analyze_fraud_monthly` | MoM change flags — CRITICAL / ALERT / WATCH / STABLE |
+| `analyze_fraud_weekly` | WoW change flags per segment |
+| `analyze_promo_weekly` | Abuse rate vs threshold, detection health |
+| `analyze_coin2dd` | Coin2DD % vs CRITICAL threshold (>20%) |
+| `analyze_appid_breakdown` | Top appIDs with MoM delta flags |
+
+Priority labels: **CRITICAL** (same-day action) · **ALERT** (24 h) · **WATCH** (this week) · **STABLE**
 
 ---
 
 ## Knowledge Base
 
-The Retrieval agent uses a **FAISS vector store** backed by documents in `data/knowledge/`. Each `.txt` file is embedded with `all-MiniLM-L6-v2` at startup.
+8 ZaloPay-specific `.txt` files embedded into a FAISS vector store at startup:
 
 ```
 data/knowledge/
-├── merchant_abuse_policy.txt
-├── discount_abuse_sop.txt
-├── volume_anomaly_playbook.txt
-├── user_abuse_guidelines.txt
-├── payment_risk_policy.txt
-├── historical_report_q4_2024.txt
-├── fraud_rules_v3.2.txt
-└── emerging_risks_2025_q1.txt
+├── zalopay_segment_definitions.txt       # appID → segment, pmcID mapping
+├── zalopay_fraud_thresholds.txt          # Monthly/weekly loss thresholds, promo %, Coin2DD %
+├── zalopay_fraud_patterns.txt            # 6 known attack patterns (Top-up Flow, Gaming/Telco, …)
+├── zalopay_fraud_narrative_templates.txt # Fill-in-the-blank report templates + decision tree
+├── zalopay_promo_abuse_patterns.txt      # BAD_V2, FAD, 5 abuse patterns, detection health
+├── zalopay_promo_narrative_templates.txt # Promo narrative templates + decision tree
+├── zalopay_cross_domain_principles.txt   # Team ownership, 5 table purposes, reporting principles
+└── zalopay_glossary.txt                  # POM, BAD_V2, FAD, DVI, VAMP, TC40, ATO, CNP, Coin2DD…
 ```
 
-**To add new knowledge:** drop a `.txt` file in `data/knowledge/` using this format, then restart the server:
+**To add knowledge:** drop a `.txt` file in `data/knowledge/` and restart the server.
 
-```
-source: my_source
-type: my_type
-version: 1.0
+---
 
-Your document content here...
-```
+## Web Search
+
+The follow-up agent can call `search_fintech_web` (DuckDuckGo, anchored to `fintech payment fraud risk`) when:
+- The user explicitly asks to search the web, **or**
+- The question covers an industry concept not in the local knowledge base
+
+Web results are used as supplementary background context — never quoted directly.
 
 ---
 
@@ -142,35 +139,34 @@ Your document content here...
 ```
 ├── fraud_analytics/
 │   ├── agents/
-│   │   ├── conversation.py   # Conversation manager
-│   │   ├── orchestrator.py   # Request parser
-│   │   ├── retrieval.py      # FAISS knowledge search
-│   │   ├── query.py          # Agentic tool-calling loop
-│   │   ├── summarizer.py     # Data summarization
-│   │   ├── reasoning.py      # Fraud finding extraction
-│   │   ├── validation.py     # Finding validation
-│   │   └── report.py         # Report generation
+│   │   ├── conversation.py    # Conversation manager + welcome + routing
+│   │   ├── orchestrator.py    # Intent parser → pillar + table mapping
+│   │   ├── retrieval.py       # FAISS knowledge search
+│   │   ├── query.py           # Pipeline + suggest_* tool-calling loop
+│   │   ├── summarizer.py      # Converts analysis outputs → narrative
+│   │   ├── reasoning.py       # ZaloPay decision trees + severity
+│   │   ├── validation.py      # Finding validation + retry logic
+│   │   ├── report.py          # Exec summary + analyst report (parallel)
+│   │   └── followup.py        # Q&A — knowledge + data tools + web search
 │   ├── graph/
-│   │   └── fraud_graph.py    # LangGraph state machine
+│   │   └── fraud_graph.py     # LangGraph state machine
 │   ├── tools/
-│   │   ├── transaction_tools.py
-│   │   ├── merchant_tools.py
-│   │   └── user_tools.py
+│   │   ├── pipeline.py        # Pandas pipeline → 5 output tables
+│   │   └── analysis.py        # Deterministic suggest_* functions
 │   ├── knowledge/
-│   │   └── vector_store.py   # FAISS knowledge base
-│   ├── utils/
-│   │   └── data_simulator.py # Mock transaction generator
-│   ├── schemas/models.py     # Pydantic output schemas
-│   ├── state.py              # LangGraph state definition
-│   └── config.py             # LLM factory + structured_invoke()
+│   │   ├── vector_store.py    # FAISS knowledge base
+│   │   └── web_enrichment.py  # DuckDuckGo web search utility
+│   ├── state.py               # LangGraph state definition
+│   └── config.py              # LLM factory + structured_invoke()
 ├── data/
-│   ├── knowledge/            # Source documents (.txt)
-│   └── vector_store/         # FAISS index (auto-generated)
-├── models/                   # Embedding model (downloaded locally)
+│   ├── knowledge/             # ZaloPay domain knowledge (.txt)
+│   └── vector_store/          # FAISS index (auto-generated)
+├── projectF/                  # Raw data input (git-ignored)
+├── models/                    # Embedding model (downloaded locally)
 ├── frontend/
-│   └── index.html            # Chat UI
-├── server.py                 # FastAPI HTTP server
-├── main.py                   # CLI entry point
+│   └── index.html             # Chat UI with domain list + quick chips
+├── server.py                  # FastAPI HTTP server
+├── main.py                    # CLI entry point
 ├── Dockerfile
 └── requirements.txt
 ```
@@ -186,7 +182,7 @@ Liveness probe. Returns `{"status": "ok"}`.
 
 ```json
 {
-  "message": "Weekly fraud report for last week, focusing on discount abuse",
+  "message": "Generate a fraud loss report for last month",
   "session_id": "optional-on-first-call"
 }
 ```
@@ -195,7 +191,7 @@ Response:
 ```json
 {
   "session_id": "abc-123",
-  "response": "Agent question or follow-up message",
+  "response": "Agent question or answer",
   "report": "Full markdown report (non-empty only when a new report is ready)",
   "done": false
 }
@@ -228,8 +224,7 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in your API key:
-# AI_PLATFORM_API_KEY=your_key_here
+# Edit .env — set AI_PLATFORM_API_KEY at minimum
 ```
 
 ### 3. Download embedding model
@@ -252,11 +247,7 @@ python server.py
 ### 5. CLI mode (optional)
 
 ```bash
-# Multi-turn chat
 python main.py
-
-# Single-shot report
-python main.py --single "Weekly fraud report for last week"
 ```
 
 ---
@@ -264,20 +255,22 @@ python main.py --single "Weekly fraud report for last week"
 ## Deployment (GreenNode AgentBase)
 
 ```bash
-# 1. Build for linux/amd64
-docker build --platform linux/amd64 -t vcr.vngcloud.vn/<repo>/fraud-analytics:latest .
-
-# 2. Login to AgentBase Container Registry
+# 1. Login to AgentBase Container Registry
 bash ~/.claude/skills/agentbase/scripts/cr.sh credentials docker-login
 
-# 3. Push
-docker push vcr.vngcloud.vn/<repo>/fraud-analytics:latest
+# 2. Build for linux/amd64
+TAG="v$(date +%Y%m%d%H%M%S)"
+docker build --platform linux/amd64 \
+  -t vcr.vngcloud.vn/111480-abp111980/claw-a-thon-demo-agent:$TAG .
 
-# 4. Create runtime
-bash ~/.claude/skills/agentbase/scripts/runtime.sh create \
-  --name fraud-analytics \
-  --image vcr.vngcloud.vn/<repo>/fraud-analytics:latest \
-  --flavor runtime-s2-general-2x4 \
+# 3. Push
+docker push vcr.vngcloud.vn/111480-abp111980/claw-a-thon-demo-agent:$TAG
+
+# 4. Update runtime
+bash ~/.claude/skills/agentbase/scripts/runtime.sh update \
+  runtime-357a5879-1fa1-4245-be42-4030d6569b60 \
+  --image vcr.vngcloud.vn/111480-abp111980/claw-a-thon-demo-agent:$TAG \
+  --flavor runtime-s2-general-4x8 \
   --env-file .env \
   --from-cr
 ```
@@ -292,5 +285,7 @@ bash ~/.claude/skills/agentbase/scripts/runtime.sh create \
 | LLM | GreenNode AI Platform (Gemma 4 31B) |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
 | Vector store | FAISS |
+| Data pipeline | Pandas |
+| Web search | DuckDuckGo (`ddgs`) |
 | HTTP server | FastAPI + Uvicorn |
 | Deployment | GreenNode AgentBase Runtime |

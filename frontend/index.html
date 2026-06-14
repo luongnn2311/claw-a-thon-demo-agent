@@ -255,21 +255,35 @@
 
 <div id="chat">
   <div class="welcome" id="welcome">
-    <div class="welcome-icon">🔍</div>
-    <h2>Fraud Analytics Agent</h2>
-    <p>Ask me to generate fraud reports, analyze transaction patterns, or investigate specific fraud pillars.</p>
+    <div class="welcome-icon">🛡️</div>
+    <h2>ZaloPay Fraud Analytics Assistant</h2>
+    <p>Generate fraud reports, explore domain knowledge, or ask anything about ZaloPay fraud patterns and risk.</p>
+
+    <div style="text-align:left;max-width:480px;margin:0 auto 20px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;">
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);letter-spacing:.08em;margin-bottom:10px;">REPORT DOMAINS</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+        <div>💸 <strong>fraud_loss</strong> — Monthly &amp; weekly loss by segment (domestic, international, VNPAY…)</div>
+        <div>🎁 <strong>promo_abuse</strong> — Promo abuse rate, BAD_V2 / FAD detection effectiveness</div>
+        <div>🔄 <strong>coin2dd</strong> — Coin-to-Direct-Debit abuse analysis</div>
+        <div>📱 <strong>appid_breakdown</strong> — Fraud breakdown by merchant / appID</div>
+        <div>📊 <strong>general</strong> — Full overview across all domains</div>
+      </div>
+    </div>
+
     <div class="chips">
-      <div class="chip" onclick="send('Weekly fraud report for last week')">📊 Weekly report</div>
-      <div class="chip" onclick="send('Analyze discount abuse for last week')">🏷️ Discount abuse</div>
-      <div class="chip" onclick="send('Merchant abuse analysis for last month')">🏪 Merchant abuse</div>
-      <div class="chip" onclick="send('Payment risk report for last week')">💳 Payment risk</div>
+      <div class="chip" onclick="send('Generate a fraud loss report for last month')">💸 Fraud Loss</div>
+      <div class="chip" onclick="send('Generate a promo abuse report for last week')">🎁 Promo Abuse</div>
+      <div class="chip" onclick="send('Generate a Coin2DD report for last month')">🔄 Coin2DD</div>
+      <div class="chip" onclick="send('Generate an appID breakdown report for last month')">📱 AppID Breakdown</div>
+      <div class="chip" onclick="send('Generate a general fraud report for last month')">📊 General</div>
+      <div class="chip" onclick="send('What is BAD_V2 and how does it work?')">❓ Ask anything</div>
     </div>
   </div>
 </div>
 
 <footer>
   <div class="input-row">
-    <textarea id="input" placeholder="Ask for a fraud report…" rows="1"
+    <textarea id="input" placeholder="Ask a question or request a report…" rows="1"
       onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
     <button id="send" onclick="sendInput()" title="Send">
       <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
