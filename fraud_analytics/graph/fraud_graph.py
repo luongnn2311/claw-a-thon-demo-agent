@@ -44,7 +44,11 @@ def _route_after_validation(state: FraudReportState) -> str:
 
 
 def _route_conversation(state: FraudReportState) -> str:
-    return state.get("next_action", "proceed")
+    action = state.get("next_action", "proceed")
+    # Guard: unknown actions fall back to proceed
+    if action not in ("proceed", "clarify", "follow_up", "answer", "end"):
+        return "proceed"
+    return action
 
 
 # ── Human-in-the-loop node ────────────────────────────────────────────────────
@@ -109,10 +113,12 @@ def build_fraud_graph():
 def _build_chat_graph(checkpointer):
     """Compile the conversational graph against an existing checkpointer."""
     from fraud_analytics.agents.conversation import conversation_node
+    from fraud_analytics.agents.followup import followup_node
 
     graph = StateGraph(FraudReportState)
     graph.add_node("conversation", conversation_node)
     graph.add_node("human_input", _human_input_node)
+    graph.add_node("followup", followup_node)
     _add_pipeline(graph)
     graph.set_entry_point("conversation")
 
@@ -120,15 +126,16 @@ def _build_chat_graph(checkpointer):
         "conversation",
         _route_conversation,
         {
-            "proceed": "orchestrator",
-            "clarify": "human_input",
-            "follow_up": "human_input",
-            "end": END,
+            "proceed":    "orchestrator",
+            "clarify":    "human_input",
+            "follow_up":  "human_input",
+            "answer":     "followup",
+            "end":        END,
         },
     )
     graph.add_edge("human_input", "conversation")
-    # Always pause at human_input after a report — never let conversation
-    # loop back to proceed without the user seeing the report first.
+    graph.add_edge("followup", "human_input")
+    # Always pause at human_input after a report.
     graph.add_edge("report", "human_input")
 
     return graph.compile(checkpointer=checkpointer)
