@@ -1,5 +1,0 @@
-source: fraud_policy
-type: payment_risk
-version: 1.5
-
-Payment Risk Policy: Failure rate >30% on a payment solution indicates technical issues or potential fraud testing. Sudden increase in declined transactions from a specific BIN range suggests card testing. Monitor chargebackAmount/amount ratio; alert threshold is 1%.

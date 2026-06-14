@@ -1,9 +1,0 @@
-source: fraud_rules
-type: rules
-version: 3.2
-
-Fraud Rules v3.2 —
-FR-001: Block transactions if user_transaction_count > 100 in 24 hours.
-FR-002: Hold payment if single transaction > 10x user_average_amount.
-FR-003: Flag merchant if discount_volume > 50% of total_volume in any week.
-FR-004: Alert if new_user_high_value_pct > 20% of new user transactions.

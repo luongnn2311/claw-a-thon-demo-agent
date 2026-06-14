@@ -1,0 +1,56 @@
+source: zalopay_domain
+type: narrative_templates
+version: 2026-05
+
+ZaloPay Fraud Narrative Templates
+
+MONTHLY TOTAL LOSS HEADLINE:
+TotalLoss recorded at [X]B VND ([±%] MoM), [decreased/increased] significantly by [±delta]B VND MoM
+([prev]B → [curr]B), primarily driven by [improvements/deterioration] in [main segment].
+
+SEGMENT-LEVEL IMPROVING:
+[Segment] [dropped/declined] by [±delta]M VND MoM ([prev]M → [curr]M).
+Controls deployed on [control target] since [deployment date] continued to perform effectively,
+[reducing/containing] loss while [maintaining/improving] [metric].
+However, [remaining risk or residual pattern].
+In [next month], ACR will [next action].
+
+SEGMENT-LEVEL WORSENING:
+[Segment] [increased] by [+delta]M VND MoM ([prev]M → [curr]M),
+primarily driven by [appID/BIN/pattern]. [Rule/control status].
+ACR will [specific next action] to address [specific risk].
+
+NO SIGNIFICANT CHANGE:
+[Segment] remained relatively stable at [X]M VND ([±small change] MoM).
+[Brief context on current monitoring status].
+
+WEEKLY TOTAL LOSS HEADLINE:
+Week of [date]: total fraud loss [X]M VND, [up/down] [%] WoW ([prev]M → [curr]M).
+Primary driver: [segment] [direction] driven by [appID/pattern].
+[Alert level if any]: [action required].
+
+INVESTIGATION PRIORITY FORMAT (output 3 priorities):
+PRIORITY 1 — [CRITICAL/ALERT/WATCH]: [title]
+Data: [specific metric] = [value] vs threshold [threshold value]
+Root cause hypothesis: [pattern reference]
+Next action: [specific operational action with owner and timeline]
+
+PRIORITY 2 — ...
+PRIORITY 3 — ...
+
+DECISION TREE APPLICATION:
+IF total_loss MoM > +20%:
+  → Check international_M first (largest volatility driver)
+  → IF international up: check appIDs 149, 3762, 9999 → deploy targeted rule or BIN limit
+  → IF domestic_direct up: check appID 454 sub-segment (VCB top-up) → behavioral rule
+  → IF domestic_napas up: check BIN concentration + SME merchant list → block BIN/merchant
+
+IF total_loss MoM declining but VCB still top contributor:
+  → Sub-segment: further behavioral treatment, granular limit rules
+
+IF fraud_rate (by appID) > 5% for 2 consecutive months:
+  → Evaluate decommissioning or complete restriction of that appID
+
+IF 45% undrained after fraud detected:
+  → Do NOT count as actual loss (funds locked/recoverable)
+  → Report actual loss = only the drained 55% portion

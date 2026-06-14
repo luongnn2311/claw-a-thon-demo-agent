@@ -1,5 +1,0 @@
-source: guidelines
-type: user_abuse
-version: 2.0
-
-User Abuse Guidelines: High-frequency users (>50 transactions/day) require manual review. New accounts making high-value transactions within 24 hours of registration are suspicious. Device fingerprint sharing across multiple user IDs indicates account farming.

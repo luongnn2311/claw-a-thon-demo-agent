@@ -1,0 +1,31 @@
+source: zalopay_domain
+type: glossary
+version: 2026-05
+
+ZaloPay Risk Glossary
+
+POM: Post-Mortem — fraud case tracking and labeling system. Source tables: post_mortem_account_risk (wallet path) and post_mortem_account_risk_gateway (gateway path).
+BAD_V2: Behavior Abuse Detection version 2 — cluster-based promo abuse rule. Flags ≥5 users sharing campaignID, promo category, bank, PIN. Degraded when campaigns split below cluster threshold.
+FAD: Fake Account Detection — ML model using device/identity (DVI) signals. Currently degraded (April 2026), owned by DS team.
+DVI: Device/Identity signals used by FAD model.
+isEstAbuser: Estimated abuser flag = is_abuser=1 OR is_monitoring=1 (includes monitored users not yet confirmed).
+isAbuser: Confirmed abuser = is_abuser=1 AND is_acquittal ≠ 1, 2 (excludes acquitted users).
+VAMP: Visa Acquirer Monitoring Program — fraud+dispute ratio in basis points; threshold breach triggers Visa program review.
+TC40: Card scheme fraud report (issuer-reported fraud). Feeds VAMP calculation.
+TC15: Card scheme dispute/chargeback report.
+COF: Card-on-File (transType=1, paymentSolution=CARD_ON_FILE).
+ATO: Account Takeover — fraudster takes control of legitimate account.
+CNP: Card Not Present fraud — card details used without physical card present.
+Coin2DD: Coin-to-Direct-Debit cashout flow. Abusers earn coins via high-reward tasks then cash out via direct debit. SME merchants used as amplifier.
+SOF: Source of Funds (pmcID configuration per appID).
+MCC: Merchant Category Code.
+TLSD: Transfer-to-Linked-Bank-Account auto flow.
+ECI: Electronic Commerce Indicator — 3DS authentication result code. Non-standard ECI = 3DS bypass risk.
+BAU: Business As Usual — standard operating process, no escalation needed.
+ACR: Account Risk team (RPO ACR) — responsible for fraud rule deployment and ATO/CNP cases.
+PRE: Promotion Risk team (RPO PRE pillar) — responsible for promotion abuse detection and response.
+NAPAS: National Payment Corporation of Vietnam — domestic card network routing.
+BIN: Bank Identification Number — first 6 digits of card number identifying issuing bank.
+SME: Small and Medium Enterprise merchants — used in Coin2DD SME path abuse.
+RA: Risk Assessment — required review before launching/modifying campaigns.
+A/B test: Before turning off legacy rules, test in subset to measure true impact; never turn off without A/B data.

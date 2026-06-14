@@ -14,8 +14,8 @@ class OrchestratorOutput(BaseModel):
     )
     fraud_pillar: str = Field(
         description=(
-            "Fraud pillar to analyze. One of: merchant_abuse, discount_abuse, "
-            "volume_risk, user_abuse, payment_risk, general"
+            "Fraud pillar to analyze. One of: fraud_loss, promo_abuse, coin2dd, "
+            "appid_breakdown, general"
         )
     )
     date_range: DateRange = Field(description="Date range for the analysis")

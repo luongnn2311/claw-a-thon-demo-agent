@@ -9,3 +9,4 @@ models/
 data/vector_store/
 output/
 .agentbase/
+projectF/

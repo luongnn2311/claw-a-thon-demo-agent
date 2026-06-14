@@ -1,0 +1,43 @@
+source: zalopay_domain
+type: segment_definitions
+version: 2026-05
+
+ZaloPay Payment Segment Definitions
+
+SEGMENT: domestic_direct
+Description: Wallet top-up via domestic card, Vietnam-issued
+Key appIDs: 454 (Nạp tiền), 4093 (VNPAY), 12 (Thẻ ĐT), 4698 (Mã thẻ Viettel), 4699 (Mã thẻ Vinaphone), 15 (Dịch Vụ)
+Primary risk: ATO (Account Takeover) via stolen domestic cards, VCB cards historically top contributor
+Control: limit 20M VND/24h/card (deployed 28-Apr-2026)
+
+SEGMENT: international
+Description: International card / gateway transactions
+Key appIDs: 149 (Mobile Payment), 3762 (VNGGameShop), 9999 (Apple), 579 (Google Play), 2391 (Thẻ giải trí), 6699 (App Store)
+Primary risk: CNP (Card Not Present) via gaming/telco appIDs using international stolen cards
+Control: targeted appID rule → BIN-level limit → foreign BIN blocking
+
+SEGMENT: domestic_napas
+Description: Domestic NAPAS card transactions routed via BIN-level or SME merchant path
+Key signals: BIN concentration, SME merchant self-payment behavior, high ticket size
+Primary risk: SME merchant collusion, BIN 970436 historically problematic
+Control: block high-risk BIN + deactivate fraud-flagged SME merchants
+
+SEGMENT: wallet
+Description: ZaloPay wallet-to-wallet / P2P / IBFT transfers
+pmcID: 38 (ZaloPay wallet)
+Primary risk: ATO patterns, fund-out after top-up fraud
+
+SEGMENT: others
+Description: Remaining appIDs not in above segments. Low contribution typically.
+
+PAYMENT METHOD (pmcID) MAPPING:
+pmcID 36: Credit card (international) — primary international fraud vector
+pmcID 41: Debit card (international/domestic) — primary international fraud vector
+pmcID 38: ZaloPay wallet (IBFT)
+pmcID 39: Domestic NAPAS
+
+APP SEGMENT CLASSIFICATION:
+domestic_direct appIDs: 454, 4093, 12, 4698, 4699, 15
+international appIDs: 9999, 579, 2391, 6699, 149, 3762
+wallet: pmcID=38 transactions
+domestic_napas: pmcID=39 transactions via BIN/NAPAS path

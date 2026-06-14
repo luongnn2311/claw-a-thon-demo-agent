@@ -1,0 +1,56 @@
+source: zalopay_domain
+type: promo_narrative_templates
+version: 2026-05
+
+ZaloPay Promotion Abuse Narrative Templates
+
+WEEKLY ABUSE TABLE NARRATIVE:
+Week of [date]: totalSpending=[X]M VND, totalAbuse=[Y]M VND, %abuse=[Z]%.
+[Increasing/decreasing/stable] compared to prior week ([WoW%] change).
+[Main driver if spike]: primarily driven by [campaign/appID/pattern].
+[If pct_abuse < 1.5%] Note: unusually low abuse level should NOT be read as low risk —
+it is more likely a loss-of-visibility issue as [FAD/BAD_V2] detection sources are [dropped/degraded].
+
+MONTHLY COIN2DD NARRATIVE:
+Coin2DD abuse rate: [X]% ([month]) vs prior month [Y]%.
+[Interpretation]: [improving after SME controls / spike driven by / stable within baseline].
+Key pattern: [Merchant segment / task type] continues to be primary abuse driver.
+[Next action if elevated].
+
+DETECTION HEALTH NOTE (standard language):
+The [low/decline in] abuse level should not be interpreted as reduced risk.
+Both key detection sources (FAD and BAD_V2) [dropped/are degraded] since [date],
+indicating a loss-of-visibility rather than a true reduction in abuse activity.
+Manual review confirmed [X abusers / Y coins abused] are still present.
+
+INVESTIGATION PRIORITY FORMAT FOR PROMO ABUSE:
+PRIORITY 1 — [RED FLAG/ALERT/WATCH]: [campaign or pattern name]
+%abuse: [value]% vs threshold [3%/4%]
+Top campaign: [campaignCode] — [amount] abuse
+Detection source status: [BAD_V2 / FAD health]
+Next action: [specific action with owner — RPO PRE / DS team]
+
+PROMO DECISION TREE:
+IF %abuse weekly > 2-3%:
+  → Identify top campaign by totalAbuse
+  → Check if campaign was recently launched or modified by business team
+  → Check if campaign is split into sub-campaignIDs → aggregate manually
+  → IF Coin2DD involved: check SME earn path (FIRST_SCANQR, CHECK_CASHLOAN tasks)
+  → Deploy challenge/reject on top abuser cluster
+
+IF %abuse weekly < 1% (unusually low):
+  → DO NOT report as improvement
+  → Check FAD model status (production deployment, score distribution)
+  → Check BAD_V2 cluster sizes (are they dropping below ≥5 threshold?)
+  → Check impact table: if Reject + Challenge also declining → confirm visibility loss
+  → Add manual review layer to validate true abuse level
+
+IF Coin2DD rate > 5%:
+  → Check SME merchant involvement in earn side
+  → Check Coin2DD appID and user overlap with known abusers
+  → IF > 7%: escalate, likely SME contributing → apply SME-specific controls
+
+IF detection drop pattern (FAD + BAD_V2 both declining):
+  → Root cause analysis: model refresh? campaign structure change? rule timeout?
+  → Temporary: reactivate manual monitoring / legacy rules as safety net
+  → Medium term: BAD_V2 threshold adjustment (≥5 → ≥4); DS capacity for FAD fix

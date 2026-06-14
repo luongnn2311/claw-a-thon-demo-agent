@@ -6,36 +6,46 @@ from fraud_analytics.state import FraudReportState
 from fraud_analytics.config import get_llm, structured_invoke
 from fraud_analytics.schemas.models import FraudAnalysisOutput
 
-_SYSTEM = """You are a Senior Fraud Analyst with 10+ years of experience in digital payments fraud.
+_SYSTEM = """You are a Senior ZaloPay Risk Analyst applying fraud investigation decision trees.
 
-Analyze the data summaries and retrieved policy documents to produce structured fraud findings.
+Your job is to synthesize the narrative summaries and domain knowledge to produce
+structured findings with specific investigation priorities.
 
-Fraud dimensions to evaluate:
-  1. Volume Risk        — transaction spikes (>200% vs baseline), Z-score anomalies
-  2. Discount Abuse     — discount_ratio > 40% per merchant, coordinated code usage
-  3. Merchant Abuse     — top-5 merchant concentration >60%, Z-score outlier merchants
-  4. User Abuse         — high-frequency users exceeding thresholds, new account velocity
-  5. Payment Risk       — failure rate >25% on any solution, potential card testing
-  6. Emerging Risks     — patterns not matching known categories
+DECISION TREE — apply in order:
+Fraud Loss:
+  IF total_loss MoM > +20% → check international first, then domestic_direct, then napas
+  IF international up → check appIDs 149, 3762, 9999 → rule or BIN limit
+  IF domestic_direct up → check appID 454 VCB sub-segment → behavioral controls
+  IF domestic_napas up → check BIN concentration + SME → block BIN/merchant
+  IF 45% undrained → report only the drained 55% as actual loss
 
-For every finding:
-  - Include SPECIFIC numbers from the evidence (do not generalize)
-  - Calibrate severity: critical(requires immediate action), high(action within 24h),
-    medium(action within week), low(monitor)
-  - Set confidence based on data completeness: 0.9+ = strong evidence, 0.7-0.9 = moderate,
-    <0.7 = indicative only
-  - Give a concrete recommended_action
+Promo Abuse:
+  IF %abuse > 4% → CRITICAL: check campaign splitting; deploy challenge; Coin2DD path
+  IF %abuse < 1.5% AND detection degraded → CAUTION: not improvement, visibility loss
+  IF Coin2DD > 7% → CRITICAL: SME earn path contributing; apply SME earn cap
+  IF detection drop (FAD + BAD_V2 both declining) → reactivate legacy rules; escalate DS
 
-Policy context:
+Cross-domain:
+  Declining metrics ≠ improvement if detection is also declining
+  Single-week anomaly → investigate before reporting as trend
+  Control effect → expect ~50% drop within same deployment week
+
+SEVERITY CALIBRATION:
+  CRITICAL = requires immediate action (same day)
+  HIGH = action within 24h
+  MEDIUM = action within this week
+  LOW = monitor / BAU
+
+Domain knowledge context:
 {knowledge}
 
-Data summaries:
+Narrative summaries from analysis:
 {summaries}
 
-Supporting query data (truncated):
-{query_data}
+Raw analysis findings (structured suggest_* output):
+{analysis_findings}
 
-Analysis scope: {report_type} | {fraud_pillar} | {start_date} to {end_date}"""
+Scope: {report_type} | {fraud_pillar} | {start_date} to {end_date}"""
 
 
 def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
@@ -43,7 +53,7 @@ def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
 
     docs = state.get("retrieved_documents") or []
     summaries = state.get("summaries") or []
-    query_results = state.get("query_results") or {}
+    analysis_results = state.get("analysis_results") or {}
     dr = state.get("date_range", {})
 
     knowledge = "\n\n".join(
@@ -52,18 +62,14 @@ def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
     )
 
     try:
-        query_data = json.dumps(
-            {k: v for k, v in list(query_results.items())[:4]},
-            indent=2,
-            default=str,
-        )[:3500]
+        analysis_findings = json.dumps(analysis_results, indent=2, default=str)[:3000]
     except Exception:
-        query_data = str(query_results)[:3500]
+        analysis_findings = str(analysis_results)[:3000]
 
     system_content = _SYSTEM.format(
-        knowledge=knowledge or "No policy documents retrieved.",
-        summaries="\n".join(summaries) or "No summaries available.",
-        query_data=query_data,
+        knowledge=knowledge or "No additional domain docs retrieved.",
+        summaries="\n\n".join(summaries) or "No summaries available.",
+        analysis_findings=analysis_findings,
         report_type=state.get("report_type", "weekly"),
         fraud_pillar=state.get("fraud_pillar", "general"),
         start_date=dr.get("start", "N/A"),
@@ -72,12 +78,11 @@ def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
 
     messages = [
         SystemMessage(content=system_content),
-        HumanMessage(
-            content=(
-                "Analyze all available evidence and generate comprehensive fraud findings. "
-                "Be specific, cite numbers, and cover all relevant fraud dimensions."
-            )
-        ),
+        HumanMessage(content=(
+            "Apply the decision trees above to the analysis findings. "
+            "Produce findings with SPECIFIC numbers and concrete recommended_actions. "
+            "Cover all tables with CRITICAL or ALERT priority findings first."
+        )),
     ]
 
     result: FraudAnalysisOutput = structured_invoke(llm, messages, FraudAnalysisOutput)
@@ -86,14 +91,11 @@ def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
 
     return {
         "findings": findings,
-        "messages": state.get("messages", [])
-        + [
-            {
-                "role": "reasoning",
-                "content": (
-                    f"Identified {len(findings)} findings. "
-                    f"Overall risk: {result.overall_risk_level}"
-                ),
-            }
-        ],
+        "messages": state.get("messages", []) + [{
+            "role": "reasoning",
+            "content": (
+                f"Identified {len(findings)} findings. "
+                f"Overall risk: {result.overall_risk_level}"
+            ),
+        }],
     }

@@ -1,80 +1,119 @@
+"""
+Query node — runs the pandas pipeline + deterministic suggest_* analysis tools.
+The LLM decides which analysis functions to call based on report_type + fraud_pillar.
+"""
 from __future__ import annotations
 from typing import Dict, Any
-from datetime import datetime, timedelta
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import tool
 from fraud_analytics.state import FraudReportState
 from fraud_analytics.config import get_llm
-from fraud_analytics.tools.transaction_tools import (
-    query_transaction_summary,
-    query_discount_analysis,
-    query_payment_solution_breakdown,
-    query_trend_comparison,
-    query_daily_volume_anomalies,
-)
-from fraud_analytics.tools.merchant_tools import (
-    query_merchant_metrics,
-    query_merchant_new_vs_existing,
-)
-from fraud_analytics.tools.user_tools import (
-    query_user_metrics,
-    query_user_discount_behavior,
+from fraud_analytics.tools.pipeline import run_pipeline
+from fraud_analytics.tools.analysis import (
+    analyze_fraud_monthly,
+    analyze_fraud_weekly,
+    analyze_promo_weekly,
+    analyze_coin2dd,
+    analyze_appid_breakdown,
 )
 
+# ── LangChain tools wrapping the pipeline + analysis functions ────────────────
+
+@tool
+def tool_run_pipeline(start_date: str = "", end_date: str = "") -> dict:
+    """Run the ZaloPay pandas pipeline from raw CSVs.
+    Returns the 5 output tables as JSON records.
+    Call this first before any analysis.
+    Args: start_date and end_date in YYYY-MM-DD format (optional)."""
+    result = run_pipeline(start_date or None, end_date or None)
+    # Return only table summaries to keep token usage manageable
+    summary = {"success": result.get("success"), "tables_computed": result.get("tables_computed", [])}
+    for table in ["fraud_monthly_loss", "fraud_weekly_loss", "promo_weekly_abuse",
+                  "coin2dd_monthly", "appid_fraud_breakdown"]:
+        if table in result:
+            summary[f"{table}_rows"] = len(result[table])
+            summary[f"{table}_sample"] = result[table][-2:] if result[table] else []
+    return summary
+
+@tool
+def tool_analyze_fraud_monthly() -> list:
+    """Run suggest_fraud_monthly analysis on the latest fraud_monthly_loss table.
+    Returns prioritized suggestions (CRITICAL/ALERT/WATCH/STABLE/CONFIRM/INVESTIGATE)."""
+    result = run_pipeline()
+    records = result.get("fraud_monthly_loss", [])
+    return analyze_fraud_monthly(records)
+
+@tool
+def tool_analyze_fraud_weekly() -> list:
+    """Run suggest_fraud_weekly analysis on the latest fraud_weekly_loss table.
+    Returns prioritized suggestions for weekly trend."""
+    result = run_pipeline()
+    records = result.get("fraud_weekly_loss", [])
+    return analyze_fraud_weekly(records)
+
+@tool
+def tool_analyze_promo_weekly() -> list:
+    """Run suggest_promo_weekly analysis on the latest promo_weekly_abuse table.
+    Returns prioritized suggestions for promo abuse trend."""
+    result = run_pipeline()
+    records = result.get("promo_weekly_abuse", [])
+    return analyze_promo_weekly(records)
+
+@tool
+def tool_analyze_coin2dd() -> list:
+    """Run suggest_coin2dd analysis on the latest coin2dd_monthly table.
+    Returns prioritized suggestions for Coin2DD abuse."""
+    result = run_pipeline()
+    records = result.get("coin2dd_monthly", [])
+    return analyze_coin2dd(records)
+
+@tool
+def tool_analyze_appid_breakdown() -> list:
+    """Run suggest_appid_breakdown analysis on the latest appid_fraud_breakdown table.
+    Returns prioritized suggestions for appID concentration and trends."""
+    result = run_pipeline()
+    records = result.get("appid_fraud_breakdown", [])
+    return analyze_appid_breakdown(records)
+
+
 ALL_TOOLS = [
-    query_transaction_summary,
-    query_discount_analysis,
-    query_payment_solution_breakdown,
-    query_trend_comparison,
-    query_daily_volume_anomalies,
-    query_merchant_metrics,
-    query_merchant_new_vs_existing,
-    query_user_metrics,
-    query_user_discount_behavior,
+    tool_run_pipeline,
+    tool_analyze_fraud_monthly,
+    tool_analyze_fraud_weekly,
+    tool_analyze_promo_weekly,
+    tool_analyze_coin2dd,
+    tool_analyze_appid_breakdown,
 ]
 
 _TOOL_MAP = {t.name: t for t in ALL_TOOLS}
 
-_SYSTEM = """You are the Data Query Agent for a Fraud Analytics System.
+_SYSTEM = """You are the Data Query Agent for a ZaloPay Fraud Analytics System.
 
-Your job is to call the right data tools to gather evidence for the fraud analysis.
+Your job is to call the right tools to gather and analyze data for the fraud report.
 
-Available tools:
-  - query_transaction_summary           : Overall volume, amounts, success/failure rates
-  - query_discount_analysis             : Per-merchant discount patterns and abuse flags
-  - query_payment_solution_breakdown    : Per-payment-solution metrics and failure rates
-  - query_trend_comparison              : Current vs previous period comparison (requires 4 dates)
-  - query_daily_volume_anomalies        : Z-score based daily volume anomaly detection
-  - query_merchant_metrics              : Merchant outliers, concentration, top merchants
-  - query_merchant_new_vs_existing      : New vs established merchant comparison
-  - query_user_metrics                  : Active/new/repeat/suspicious users
-  - query_user_discount_behavior        : Users with abnormal discount usage
+TOOL CALLING STRATEGY:
+1. ALWAYS call tool_run_pipeline first to load all 5 tables.
+2. Then call the relevant analysis tool(s) based on fraud_pillar and tables_to_use:
+   - fraud_loss / weekly      → tool_analyze_fraud_weekly
+   - fraud_loss / monthly     → tool_analyze_fraud_monthly
+   - promo_abuse              → tool_analyze_promo_weekly
+   - coin2dd                  → tool_analyze_coin2dd
+   - appid_breakdown          → tool_analyze_appid_breakdown
+   - general                  → call ALL analysis tools
 
-Current context:
+Context:
   report_type   : {report_type}
   fraud_pillar  : {fraud_pillar}
+  tables_to_use : {tables_to_use}
   date_range    : {start_date} to {end_date}
-  previous period: {prev_start} to {prev_end}
   retry_count   : {retry_count}
-  already_queried: {already_queried}
+  already_called: {already_called}
 
 Rules:
-- Always call query_transaction_summary for the current period.
-- Call the tool(s) most relevant to fraud_pillar.
-- Call query_trend_comparison to show period-over-period change.
-- Do NOT call tools already in already_queried — cached results will be reused automatically.
-- On retry, only call tools NOT yet in already_queried to fill gaps.
-- Stop calling tools once you have enough data (3-5 tool calls is usually sufficient)."""
+- Do NOT call tools already in already_called — cached results are reused automatically.
+- Stop after all relevant analysis tools have been called."""
 
-_MAX_LOOP = 12
-
-
-def _prev_period(start: str, end: str) -> tuple[str, str]:
-    s = datetime.strptime(start, "%Y-%m-%d")
-    e = datetime.strptime(end, "%Y-%m-%d")
-    delta = (e - s) + timedelta(days=1)
-    pe = s - timedelta(days=1)
-    ps = pe - delta + timedelta(days=1)
-    return ps.strftime("%Y-%m-%d"), pe.strftime("%Y-%m-%d")
+_MAX_LOOP = 10
 
 
 def query_node(state: FraudReportState) -> Dict[str, Any]:
@@ -82,36 +121,31 @@ def query_node(state: FraudReportState) -> Dict[str, Any]:
     llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
     dr = state.get("date_range", {})
-    start_date = dr.get("start", (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"))
-    end_date = dr.get("end", datetime.now().strftime("%Y-%m-%d"))
-    prev_start, prev_end = _prev_period(start_date, end_date)
-
+    start_date = dr.get("start", "")
+    end_date = dr.get("end", "")
     existing_results: Dict[str, Any] = dict(state.get("query_results") or {})
-    retry_count = state.get("retry_count", 0)
+    existing_analysis: Dict[str, Any] = dict(state.get("analysis_results") or {})
 
     system_content = _SYSTEM.format(
         report_type=state.get("report_type", "weekly"),
         fraud_pillar=state.get("fraud_pillar", "general"),
+        tables_to_use=state.get("tables_to_use", []),
         start_date=start_date,
         end_date=end_date,
-        prev_start=prev_start,
-        prev_end=prev_end,
-        retry_count=retry_count,
-        already_queried=list(existing_results.keys()),
+        retry_count=state.get("retry_count", 0),
+        already_called=list(existing_results.keys()) + list(existing_analysis.keys()),
     )
 
     messages = [
         SystemMessage(content=system_content),
-        HumanMessage(
-            content=(
-                f"Gather data for {state.get('report_type', 'weekly')} "
-                f"{state.get('fraud_pillar', 'general')} fraud analysis "
-                f"from {start_date} to {end_date}."
-            )
-        ),
+        HumanMessage(content=(
+            f"Run the pipeline and analyze: {state.get('fraud_pillar', 'general')} "
+            f"({state.get('report_type', 'weekly')}) from {start_date} to {end_date}."
+        )),
     ]
 
-    new_results: Dict[str, Any] = {}
+    new_query_results: Dict[str, Any] = {}
+    new_analysis_results: Dict[str, Any] = {}
 
     for _ in range(_MAX_LOOP):
         response = llm_with_tools.invoke(messages)
@@ -122,13 +156,14 @@ def query_node(state: FraudReportState) -> Dict[str, Any]:
 
         for tc in response.tool_calls:
             tool_name = tc["name"]
-            # Skip tools already fetched this invocation or in previous runs
-            if tool_name in new_results or tool_name in existing_results:
-                cached = new_results.get(tool_name) or existing_results.get(tool_name)
-                messages.append(
-                    ToolMessage(content=str(cached), tool_call_id=tc["id"])
-                )
+            all_done = {**new_query_results, **new_analysis_results,
+                        **existing_results, **existing_analysis}
+            if tool_name in all_done:
+                messages.append(ToolMessage(
+                    content=str(all_done[tool_name]), tool_call_id=tc["id"]
+                ))
                 continue
+
             tool_fn = _TOOL_MAP.get(tool_name)
             if tool_fn is None:
                 result = f"Unknown tool: {tool_name}"
@@ -137,20 +172,33 @@ def query_node(state: FraudReportState) -> Dict[str, Any]:
                     result = tool_fn.invoke(tc["args"])
                 except Exception as exc:
                     result = f"Tool error: {exc}"
-            new_results[tool_name] = result
-            messages.append(
-                ToolMessage(content=str(result), tool_call_id=tc["id"])
-            )
 
-    merged = {**existing_results, **new_results}
+            # Route to correct bucket
+            if tool_name == "tool_run_pipeline":
+                new_query_results[tool_name] = result
+                # Also store the full pipeline output for downstream nodes
+                if isinstance(result, dict) and result.get("success"):
+                    full = run_pipeline(start_date or None, end_date or None)
+                    for tbl in ["fraud_monthly_loss", "fraud_weekly_loss",
+                                "promo_weekly_abuse", "coin2dd_monthly", "appid_fraud_breakdown"]:
+                        if tbl in full:
+                            new_query_results[tbl] = full[tbl]
+            else:
+                new_analysis_results[tool_name] = result
+
+            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+
+    merged_query = {**existing_results, **new_query_results}
+    merged_analysis = {**existing_analysis, **new_analysis_results}
 
     return {
-        "query_results": merged,
-        "messages": state.get("messages", [])
-        + [
-            {
-                "role": "query",
-                "content": f"Executed {len(new_results)} queries: {list(new_results.keys())}",
-            }
-        ],
+        "query_results": merged_query,
+        "analysis_results": merged_analysis,
+        "messages": state.get("messages", []) + [{
+            "role": "query",
+            "content": (
+                f"Pipeline: {list(new_query_results.keys())} | "
+                f"Analysis: {list(new_analysis_results.keys())}"
+            ),
+        }],
     }

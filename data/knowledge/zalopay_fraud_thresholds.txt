@@ -1,0 +1,58 @@
+source: zalopay_domain
+type: fraud_thresholds
+version: 2026-05
+
+ZaloPay Fraud Loss Thresholds & Alert Triggers
+
+MONTHLY FRAUD LOSS:
+Normal range: 3–4.5B VND total
+Warning: >4.5–5B VND or >+20% MoM
+Alert: >6B VND or sudden spike >+40% MoM
+
+MOM CHANGE:
+Normal: ±15%
+Warning: >+25% MoM
+Alert: >+40% MoM or >-40% (check for detection gap)
+
+INTERNATIONAL SHARE:
+Normal: 25–40% of total
+Warning: >50%
+Alert: >60%
+
+DOMESTIC DIRECT SHARE:
+Normal: 50–70% of total
+Warning: >80% concentrated
+
+NAPAS MERCHANT LEVEL 1 (per merchant):
+Normal: <0.5%
+Warning: 0.5–0.75%
+Alert: fraud_amt >500M AND rate ≥0.75%
+
+NAPAS MERCHANT LEVEL 2 (platform-wide):
+Normal: <0.75%
+Warning: 0.75–1%
+Alert: fraud_amt >1B AND rate ≥1%
+
+WEEKLY FRAUD LOSS:
+Spike: >+20% WoW
+Critical spike: >+50% WoW — investigate same-day with ACR
+Drop: <-30% WoW — verify not a detection gap
+
+PROMOTION ABUSE — WEEKLY %ABUSE:
+Normal: 1.5–2.5% (totalAbuse / totalSpending)
+Warning: >2.5–3%
+Alert: >3–4%
+Red flag: >4% — immediate action required
+
+PROMOTION ABUSE — MONTHLY %ABUSE:
+Normal: 1.8–3.5%
+Investigation threshold: >5%
+
+COIN2DD ABUSE RATE:
+Normal: 3–4% (totalAbuse / totalDiscount)
+Signal: >5% — investigate
+SME contributing: >7% — escalate immediately
+
+VAMP (Visa Acquirer Monitoring Program):
+TC40 fraud rate approaching threshold → escalate to acquirer
+NAPAS fraud rate Level 2 ≥1% → immediate escalation

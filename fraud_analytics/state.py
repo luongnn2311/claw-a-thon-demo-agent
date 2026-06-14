@@ -6,10 +6,12 @@ class FraudReportState(TypedDict, total=False):
     user_request: str
     report_type: str               # "weekly" | "monthly" | "adhoc"
     date_range: Dict[str, str]     # {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}
-    fraud_pillar: str              # e.g. "merchant_abuse", "discount_abuse"
+    fraud_pillar: str              # "fraud_loss" | "promo_abuse" | "coin2dd" | "appid_breakdown" | "general"
+    tables_to_use: List[str]       # subset of the 5 tables relevant to the request
     retrieved_documents: List[Dict[str, Any]]
-    query_results: Dict[str, Any]
-    summaries: List[str]
+    query_results: Dict[str, Any]  # raw pipeline output (5 tables as records)
+    analysis_results: Dict[str, Any]  # suggest_* outputs per table
+    summaries: List[str]           # narrative summaries produced by summarizer
     findings: List[Dict[str, Any]]
     validation_result: Dict[str, Any]
     final_report: str

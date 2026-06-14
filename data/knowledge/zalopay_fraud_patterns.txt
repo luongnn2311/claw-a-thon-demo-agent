@@ -1,0 +1,43 @@
+source: zalopay_domain
+type: fraud_patterns
+version: 2026-05
+
+ZaloPay Key Fraud Patterns (Cross-Month Observed)
+
+PATTERN 1 — Top-up Flow Attack (appID 454 / domestic_direct)
+Mechanism: Fraudsters top-up via stolen domestic card → fund-out immediately via high-risk appIDs
+Fund-out flow: 454 top-up → 55% immediate fund-out (Apple, Telco, Thẻ điện thoại, P2P)
+Remaining 45% = undrained = locked by ACR = NOT actual loss (recoverable)
+Key signal: VCB cards historically the largest contributor within domestic_direct
+Sub-segment rule deployed: limit 20M/24h/card (28-Apr-2026)
+CRITICAL ACCOUNTING RULE: Actual loss = only the drained 55% portion. Do NOT count locked 45% as loss.
+
+PATTERN 2 — Gaming/Telco International Attack
+Mechanism: High-value transactions via gaming appIDs using international stolen cards
+Affected appIDs: 149 (Mobile Payment), 3762 (VNGGameShop), 9999 (Apple)
+Signal: BIN-level concentration — one issuer BIN can account for disproportionate fraud
+Control sequence: targeted appID rule → BIN-level limit → foreign BIN blocking
+Effect: expect ~50% loss reduction within the same deployment week for targeted rules
+
+PATTERN 3 — Balance Probing (VCB cards)
+Mechanism: Small transactions to check available balance before large fraud attempt
+Signals: many small failed transactions from same card, device, or appUser
+Control: VCB top-up balance probing rule deployed 14-May-2026
+Targets: domestic_direct segment, appID 454
+
+PATTERN 4 — SME Merchant Collusion (domestic_napas)
+Mechanism: SME merchants with self-payment behavior + high ticket size
+Key data point: BIN 970436 = major contributor in Mar 2026 Napas spike
+Effect of control: napas loss dropped -590M VND MoM after SME merchant blocking
+Investigation: check BIN concentration + SME merchant overlap first
+
+PATTERN 5 — 3DS Execution Issues
+Issue 1: Payment Core V2 migration → "require 3DS" overridden → liability shift (~289M VND)
+Issue 2: Timeout handling → bypass 3DS without authentication (~450M VND)
+Status: Both fixed; backtest confirmed no recurrence after fix dates
+Monitor: ECI codes in transaction log for 3DS bypass signals
+
+PATTERN 6 — VAMP / TC40 Concentration
+Risk: Visa Acquirer Monitoring Program — fraud+dispute ratio in bps approaching threshold
+Trigger: single BIN or merchant driving disproportionate TC40 volume
+Action: escalate to acquirer for data; deploy proactive dispute reduction rules

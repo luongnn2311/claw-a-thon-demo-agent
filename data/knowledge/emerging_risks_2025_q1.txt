@@ -1,5 +1,0 @@
-source: emerging_risks
-type: intelligence
-period: 2025-Q1
-
-Emerging Risk Signals 2025: Coordinated MOMO wallet abuse using multiple registered phones. Discount abuse through merchant-user collusion on ZALOPAY. Synthetic transaction rings detected across 3-5 merchant accounts. Average ring size: 8-12 accounts. Detection lag: 5-7 days without ML models.

@@ -1,5 +1,0 @@
-source: sop
-type: discount_abuse
-version: 1.3
-
-Discount Abuse SOP: Users who apply more than 5 promotional codes per week should be reviewed. discount_ratio = discountAmount / amount. If discount_ratio > 0.5, flag for review. Coordinated discount usage across multiple accounts at the same merchant is suspicious.

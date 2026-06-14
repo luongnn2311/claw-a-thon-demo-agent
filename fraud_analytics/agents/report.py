@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any
 from datetime import datetime
@@ -7,62 +8,76 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from fraud_analytics.state import FraudReportState
 from fraud_analytics.config import get_llm
 
-_EXEC_SYSTEM = """You are generating the Executive Summary for a Fraud Risk Report.
+_EXEC_SYSTEM = """You are generating the Executive Summary for a ZaloPay Fraud Risk Report.
 
-Audience: Senior management, VP Risk, Head of Fraud Operations.
+Audience: VP Risk, Head of Fraud Operations.
 
-Requirements:
-- Under 300 words, punchy and direct
-- Lead with the single most critical risk
-- Include 3-5 key metrics as bullet points
-- End with exactly 3 recommended immediate actions numbered 1-3
-- Use plain business language, no jargon
-- Format as markdown"""
+Format:
+- Lead with the single most critical finding and its metric
+- 4-6 bullet points with specific numbers (loss in M VND, %change, threshold comparison)
+- End with exactly 3 recommended immediate actions (numbered, with owner and timeline)
+- Under 300 words. Markdown format.
 
-_DETAIL_SYSTEM = """You are generating a Fraud Analytics Report for the fraud operations team.
+Use ZaloPay priority labels: CRITICAL / ALERT / WATCH / STABLE."""
 
-# Fraud Analytics Report — {title}
+_DETAIL_SYSTEM = """You are generating a ZaloPay Fraud Analytics Report for the fraud operations team.
+
+# ZaloPay Fraud Risk Report — {title}
 **Period:** {start_date} → {end_date} | **Generated:** {generated_at}
 
-Produce these 5 sections in markdown. Be concise — 2-4 sentences per section max.
+Produce these 5 sections in markdown using ZaloPay narrative templates:
 
-## 1. Overview
-Key volume, amount, success rate metrics only.
+## 1. KPI Summary
+For each relevant table: headline metric + direction (MoM% or WoW%) + segment driver.
+Use format: "Total fraud loss: X M VND (±Y% MoM), primarily driven by [segment]."
 
-## 2. Key Findings
-Numbered list with severity badge (🔴🟠🟡🟢) and one sentence each.
+## 2. Segment Analysis
+One paragraph per segment with significant movement (>100M VND MoM / >20% WoW).
+Format: "[Segment] [dropped/increased] by ±X M VND MoM ([prev]M → [curr]M), driven by [appID/pattern]. ACR will [next action]."
 
-## 3. Fraud Indicators
-Bullet points per pillar with the single most important metric.
+## 3. Investigation Priorities
+Top 3, each with:
+  - Priority level (CRITICAL/ALERT/WATCH) and title
+  - Specific metric vs threshold
+  - Root cause hypothesis (reference known pattern)
+  - Next action with owner and timeline
 
-## 4. Risk Assessment
-Markdown table: Pillar | Likelihood | Impact | Overall
+## 4. Promotion Abuse Status (if applicable)
+%abuse metric + WoW direction + detection health note if degraded.
 
-## 5. Top 3 Recommendations
-Numbered. One action sentence each with owner and timeline."""
+## 5. Next Actions Table
+Markdown table: | Priority | Action | Owner | Timeline |"""
 
 
 def report_node(state: FraudReportState) -> Dict[str, Any]:
     llm = get_llm(temperature=0.4, max_tokens=2000)
 
-    findings = state.get("findings") or []
-    validation = state.get("validation_result") or {}
-    query_results = state.get("query_results") or {}
-    summaries = state.get("summaries") or []
-    dr = state.get("date_range", {})
-    report_type = state.get("report_type", "weekly")
-    pillar = state.get("fraud_pillar", "general")
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    findings       = state.get("findings") or []
+    validation     = state.get("validation_result") or {}
+    summaries      = state.get("summaries") or []
+    analysis       = state.get("analysis_results") or {}
+    query_results  = state.get("query_results") or {}
+    dr             = state.get("date_range", {})
+    report_type    = state.get("report_type", "weekly")
+    pillar         = state.get("fraud_pillar", "general")
+    generated_at   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    context = "\n\n".join(
-        [
-            f"REPORT TYPE: {report_type} | PILLAR: {pillar}",
-            f"PERIOD: {dr.get('start')} to {dr.get('end')}",
-            f"VALIDATION CONFIDENCE: {validation.get('confidence', 'N/A')}",
-            f"FINDINGS ({len(findings)}):\n{json.dumps(findings, indent=2, default=str)[:1500]}",
-            f"DATA SUMMARIES:\n" + "\n".join(summaries[:5]),
-        ]
-    )
+    # Build context — prioritise analysis results + summaries over raw data
+    try:
+        analysis_str = json.dumps(analysis, indent=2, default=str)[:1500]
+    except Exception:
+        analysis_str = str(analysis)[:1500]
+
+    context = "\n\n".join([
+        f"REPORT TYPE: {report_type} | PILLAR: {pillar}",
+        f"PERIOD: {dr.get('start')} to {dr.get('end')}",
+        f"VALIDATION: confidence={validation.get('confidence', 'N/A')}, "
+        f"validated={validation.get('validated')}",
+        f"FINDINGS ({len(findings)}):\n"
+        + json.dumps(findings, indent=2, default=str)[:1500],
+        f"NARRATIVE SUMMARIES:\n" + "\n\n".join(summaries[:5]),
+        f"ANALYSIS RESULTS (suggest_* outputs):\n{analysis_str}",
+    ])
 
     title = f"{report_type.title()} | {pillar.replace('_', ' ').title()}"
     detail_system = _DETAIL_SYSTEM.format(
@@ -72,14 +87,13 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
         generated_at=generated_at,
     )
 
-    import time
     _req_count = 0
 
     def _exec():
         nonlocal _req_count
         t0 = time.time()
         _req_count += 1
-        print(f"  [report] req#{_req_count} exec_summary START", flush=True)
+        print(f"  [report] req#1 exec_summary START", flush=True)
         r = llm.invoke([
             SystemMessage(content=_EXEC_SYSTEM),
             HumanMessage(content=f"Generate executive summary:\n\n{context}"),
@@ -91,7 +105,7 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
         nonlocal _req_count
         t0 = time.time()
         _req_count += 1
-        print(f"  [report] req#{_req_count} detail_report START", flush=True)
+        print(f"  [report] req#2 detail_report START", flush=True)
         r = llm.invoke([
             SystemMessage(content=detail_system),
             HumanMessage(content=f"Generate the complete analyst report:\n\n{context}"),
@@ -107,15 +121,11 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
 
     print(f"  [report] total LLM requests: {_req_count}", flush=True)
 
-    validation_banner = (
-        "✅ VALIDATED" if validation.get("validated") else "⚠️  PARTIAL VALIDATION"
-    )
-    confidence = validation.get("confidence", "N/A")
+    validation_banner = "✅ VALIDATED" if validation.get("validated") else "⚠️  PARTIAL VALIDATION"
     issues = validation.get("issues_found", [])
     issues_text = (
         "\n".join(f"  - [{i.get('severity','?').upper()}] {i.get('issue','')}" for i in issues)
-        if issues
-        else "  None"
+        if issues else "  None"
     )
 
     final_report = f"""
@@ -133,9 +143,9 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
 
 {'═' * 72}
   VALIDATION STATUS : {validation_banner}
-  CONFIDENCE        : {confidence}
-  VALIDATION NOTES  : {validation.get('validation_notes', 'N/A')}
-  ISSUES FLAGGED    :
+  CONFIDENCE        : {validation.get('confidence', 'N/A')}
+  NOTES             : {validation.get('validation_notes', 'N/A')}
+  ISSUES            :
 {issues_text}
 {'═' * 72}
 """
@@ -143,5 +153,5 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
     return {
         "final_report": final_report,
         "messages": state.get("messages", [])
-        + [{"role": "report", "content": "Final report generated"}],
+        + [{"role": "report", "content": "Final ZaloPay fraud report generated"}],
     }

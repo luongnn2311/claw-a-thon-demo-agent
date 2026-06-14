@@ -22,9 +22,9 @@ def retrieval_node(state: FraudReportState) -> Dict[str, Any]:
     user_request = state.get("user_request", "")
 
     queries = [
-        f"{pillar} fraud policy rules thresholds",
-        f"{pillar} investigation playbook SOP procedures",
-        f"historical {report_type} fraud report {pillar}",
+        f"{pillar} thresholds alert triggers investigation",
+        f"{pillar} narrative templates decision tree",
+        f"{pillar} fraud patterns known ZaloPay",
         user_request[:200],
     ]
 

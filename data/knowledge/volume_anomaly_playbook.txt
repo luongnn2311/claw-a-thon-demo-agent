@@ -1,5 +1,0 @@
-source: playbook
-type: volume_risk
-version: 1.0
-
-Volume Anomaly Playbook: A sudden spike of >200% in transaction count vs 4-week average indicates potential synthetic transactions or bot activity. Z-score > 3.0 on daily volume is an alert threshold. Investigate if new merchant accounts show high velocity within first 72 hours of onboarding.

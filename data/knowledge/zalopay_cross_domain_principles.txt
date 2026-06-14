@@ -1,0 +1,34 @@
+source: zalopay_domain
+type: cross_domain_principles
+version: 2026-05
+
+ZaloPay Universal Reporting Principles & Team Ownership
+
+UNIVERSAL REPORTING PRINCIPLES:
+1. Declining metrics ≠ improvement if detection is also declining — always cross-check detection health
+2. Undrained funds ≠ actual loss — locked/recoverable funds should be reported separately (45% typical lock rate)
+3. Single-week anomaly = investigate before reporting as trend
+4. Control deployment effect: expect ~50% loss reduction within same deployment week for targeted rules
+5. Segment isolation: when one segment spikes, first check if it's truly isolated or systemic
+6. Campaign split evasion: always aggregate by promotionName/scheme, not just campaignID
+
+TEAM OWNERSHIP QUICK REFERENCE:
+Fraud rule deployment: RPO ACR → escalation: DA/AE for rule build
+3DS monitoring: RPO ACR + SE → escalation: SE for execution fixes
+Promotion abuse detection: RPO (PRE pillar) → DS for FAD model; AE for BAD_V2
+Coin/Loyalty abuse: RPO + Loyalty team → Product Ops for UX challenge
+appID rule deployment: RPO ACR with DA/AE
+
+REPORT STRUCTURE GUIDANCE:
+1. KPI Headline: total loss + MoM/WoW change + primary segment driver
+2. Segment Analysis: each segment with significant change (>100M VND MoM or >20% WoW)
+3. Pattern Investigation: which known pattern explains the data
+4. Investigation Priorities: top 3, ordered by severity (CRITICAL → ALERT → WATCH)
+5. Next Actions: specific, time-bound, with owner
+
+FIVE OUTPUT TABLES AND THEIR PURPOSE:
+TABLE 1 (fraud_monthly_loss): Monthly loss breakdown by segment — used for MoM trend and board reporting
+TABLE 2 (fraud_weekly_loss): Weekly operational monitoring — used for same-week response
+TABLE 3 (promo_weekly_abuse): Weekly promo abuse KPIs — used by PRE pillar for campaign monitoring
+TABLE 4 (coin2dd_monthly): Monthly Coin2DD abuse — used to track SME earn-side controls
+TABLE 5 (appid_fraud_breakdown): Per-appID fraud concentration — used to identify rule targets

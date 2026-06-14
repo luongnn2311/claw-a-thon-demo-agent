@@ -1,5 +1,0 @@
-source: fraud_policy
-type: merchant_abuse
-version: 2.1
-
-Merchant Abuse Policy: Merchants showing transaction volume growth >300% week-over-week must be flagged for investigation. Discount concentration >40% on a single merchant is a red flag. Multiple accounts linked to one merchant IP indicate potential abuse.

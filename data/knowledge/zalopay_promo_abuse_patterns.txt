@@ -1,0 +1,60 @@
+source: zalopay_domain
+type: promo_abuse_patterns
+version: 2026-05
+
+ZaloPay Promotion Abuse Domain Knowledge
+
+DETECTION SOURCES (as of May 2026):
+BAD_V2: Cluster-based rule — ≥5 users sharing campaignID, promo category, bank, PIN
+  Status: DEGRADED — campaign splitting causing cluster size to drop below threshold
+  Fix proposed: lower cluster threshold to ≥4
+
+FAD (DVI): Fake Account Detection model — device/identity signals
+  Status: DEGRADED — drop from April, ownership with DS team
+  Issue: FAD detection ≠ enforcement → gap in downstream action flow (~50 detected abusers/day not actioned)
+
+RULE_BLACKLIST: Rule-based blacklist from manual review + velocity rules — Active
+FAKE_EKYC: eKYC-based fake account detection — Active but limited scope
+VietQR_BANK_CLUSTER: VietQR-specific clustering — Reduced after KYC/Face auth rule deployed end of March
+
+KEY ABUSE PATTERNS:
+
+PATTERN 1 — Campaign Splitting (Loyalty Scheme Evasion)
+Mechanism: Business team splits one large campaign into multiple small campaignIDs
+Effect: each sub-campaign stays below alert threshold; aggregate abuse only visible when manually summed
+Example: Nạp điện thoại_VC 10@max10k split → 37.5M abuse (63% rate)
+Detection: monitor at scheme-level, not campaign-level
+Required action: scheme-level RA review before splitting; aggregate by promotionName
+
+PATTERN 2 — Coin2DD SME Path
+Mechanism: High-reward tasks (FIRST_SCANQR, CHECK_CASHLOAN) → fast coin earn → Coin2DD cashout
+Data point: 127 users abused ~21.5M coins; avg 170K per user (May 2026)
+Control effect: Coin2DD rate dropped 12% → 3% after SME controls (Apr 2026)
+Investigation: check SME earn path tasks; apply SME earn cap
+
+PATTERN 3 — Non-KYC Cluster Abuse
+Mechanism: Non-KYC users cluster around campaign, promo category, platform, bankCode, PIN
+Degradation: BAD_V2 clusters dropping below ≥5 threshold due to campaign splitting
+Fix: lower cluster threshold to ≥4; add behavioral signals beyond cluster
+
+PATTERN 4 — Fake Account (FAD / FAKE_EKYC)
+Issue: ~50 detected abusers/day not actioned due to production enforcement gap (Apr 2026)
+Ownership: FAD model with DS team, no capacity for logic changes
+Action: escalate DS capacity; add manual review layer
+
+PATTERN 5 — Rule-Off Rebound
+Mechanism: Legacy safety-net rules turned off → abuse immediately returns
+Example: phone number limit for promo top-up turned off → Telco attack resurfaced
+Principle: low-hit rules may still be critical safety nets; A/B test before removal
+
+DETECTION HEALTH WARNING:
+Low %abuse metric should NOT be interpreted as reduced risk if FAD + BAD_V2 are both degraded.
+Standard language: "The low abuse level should not be interpreted as reduced risk. Both key detection sources (FAD and BAD_V2) dropped/are degraded since [date], indicating a loss-of-visibility rather than a true reduction in abuse activity."
+
+NEXT ACTION SCENARIOS:
+%abuse spike >3%/week → identify top campaign by abuse amount; deploy challenge; check Coin2DD SME
+Coin2DD >5% → apply SME earn restrictions; check high-reward task list
+Detection drop (FAD+BAD down) → raise with DS; reactivate legacy rules; manual audit top-abuse appIDs
+Campaign split evasion → implement scheme-level alert; require business team RA before splitting
+BAD_V2 under-detecting → lower cluster threshold to ≥4; add behavioral signals
+Impact (reject+challenge) declining → review rule performance; check if safety-net rules were turned off
