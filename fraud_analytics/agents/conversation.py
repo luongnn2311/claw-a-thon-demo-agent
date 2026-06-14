@@ -8,7 +8,7 @@ from fraud_analytics.config import get_llm, structured_invoke
 
 
 class ConversationDecision(BaseModel):
-    action: Literal["clarify", "proceed", "follow_up", "answer", "end"] = Field(
+    action: Literal["clarify", "proceed", "answer", "end"] = Field(
         description="Next action"
     )
     message: str = Field(
@@ -19,45 +19,61 @@ class ConversationDecision(BaseModel):
     )
 
 
-_SYSTEM = """You are the Conversation Manager for a ZaloPay Fraud Analytics chatbot.
+_PILLARS_HINT = """
+Available report domains:
+  • fraud_loss      — monthly + weekly loss by segment (domestic/international/VNPAY/…)
+  • promo_abuse     — promo abuse rate, BAD_V2 / FAD detection effectiveness
+  • coin2dd         — Coin-to-Direct-Debit abuse analysis
+  • appid_breakdown — fraud breakdown by merchant / appID
+  • general         — full overview across ALL domains above
+"""
 
-Decide what to do next based on the conversation.
+_SYSTEM = """You are the Conversation Manager for the ZaloPay Fraud Analytics Assistant.
+
+You are a FRAUD ASSISTANT — not just a report generator.
+Users can ask general fraud questions, explore domain knowledge, or request a full analysis report.
 
 ACTIONS
-  proceed     — Request is clear. Run the full fraud analysis pipeline now.
-  clarify     — Request is vague. Ask exactly ONE short question.
-  follow_up   — A report was just delivered and user has NOT yet been asked if they want details.
-                Offer ONE short sentence inviting follow-up questions.
-  answer      — User asked a specific question about the existing report
-                (e.g. "why is X high?", "explain Y", "what does Z mean?",
-                "show me appID breakdown", "more detail on international").
-                Do NOT set a message — the followup node will answer.
-  end         — User is done (says no/exit/quit/thanks/bye).
+  proceed  — User explicitly wants a full fraud analysis report generated.
+             Only use this when the user clearly asks for a report/analysis AND the
+             domain/pillar is known. The core function is report generation.
+  answer   — Handle everything else: general questions, domain knowledge,
+             follow-up questions about a previous report, data lookups,
+             "what is X", "explain Y", "how does Z work", "show me the data".
+             The followup agent will answer using knowledge + data tools + web search.
+  clarify  — The request is ambiguous, OR the user wants a report but hasn't specified
+             which domain/pillar. Recommend the available domains and ask ONE question.
+  end      — User is done (says exit/quit/bye/thanks/no more).
 
-ROUTING RULES
-  has_report = false:
-    • Topic + time period identifiable                    → proceed
-    • Either missing or ambiguous                         → clarify
+ROUTING DECISION TREE
 
-  has_report = true, NO prior "follow_up" offer in history:
-    • Always offer                                        → follow_up
+Step 1 — Is the user done?
+  → exit / quit / bye / done / thanks / goodbye  →  end
 
-  has_report = true, last assistant turn was a "follow_up" offer:
-    • User asks a question or requests more detail        → answer
-    • User requests a NEW/DIFFERENT analysis              → proceed
-    • User says no / exit / done / thanks / bye           → end
+Step 2 — Is it explicitly a REPORT REQUEST?
+  Signals: "generate a report", "give me a report", "run analysis", "analyze X",
+           "I need the weekly/monthly report", "show fraud report", "create report",
+           "report on", "fraud analysis"
+  → YES + pillar/domain is clear (fraud_loss / promo_abuse / coin2dd / appid_breakdown / general)
+      AND date range is implied or stated  →  proceed
+  → YES + pillar OR date range is unclear  →  clarify
+    (Recommend the available domains listed below and ask which they want)
 
-  has_report = true, last assistant turn was an "answer":
-    • User asks another question                          → answer
-    • User requests a NEW/DIFFERENT analysis              → proceed
-    • User says no / exit / done / thanks / bye           → end
+Step 3 — Everything else  →  answer
+  This includes:
+  - General questions: "what is BAD_V2?", "explain CNP fraud", "what is VAMP?"
+  - Domain exploration: "how does Coin2DD abuse work?", "what are ZaloPay fraud segments?"
+  - Data questions: "what was the fraud loss last week?", "show me appID breakdown"
+  - Follow-up on existing report: "why is international high?", "tell me more about X"
+  - Comparisons, thresholds, patterns, team ownership questions
 
+IMPORTANT: Default to "answer" when in doubt. Only use "proceed" for clear, specific report requests.
+{pillars_hint}
 MESSAGE CONTENT
-  proceed     → "" (empty)
-  answer      → "" (empty — followup node generates the answer)
-  clarify     → brief question only
-  follow_up   → one friendly sentence, e.g. "Would you like to dive deeper into any section?"
-  end         → short farewell
+  proceed  → "" (empty)
+  answer   → "" (empty — followup agent answers directly)
+  clarify  → friendly question that recommends domains when relevant, one question only
+  end      → short farewell
 
 Today: {today}
 has_report: {has_report}
@@ -68,14 +84,37 @@ Conversation history (last 12 turns):
 Latest user message: "{user_request}"
 """
 
+_WELCOME = """Hi! I'm the **ZaloPay Fraud Analytics Assistant** — your go-to tool for fraud data, patterns, and insights.
+
+Here's what I can do for you:
+
+**Generate a fraud report** for any of these domains:
+- 💸 **Fraud Loss** — monthly/weekly loss by segment (domestic, international, VNPAY, …)
+- 🎁 **Promo Abuse** — promo abuse rate, BAD_V2 / FAD detection effectiveness
+- 🔄 **Coin2DD** — Coin-to-Direct-Debit abuse analysis
+- 📱 **AppID Breakdown** — fraud broken down by merchant / appID
+- 📊 **General** — full overview across all of the above
+
+**Or just ask me anything** about ZaloPay fraud — patterns, thresholds, terminology, team ownership, or industry concepts.
+
+What would you like to explore today?"""
+
 
 def conversation_node(state: FraudReportState) -> Dict[str, Any]:
-    llm = get_llm(temperature=0.2)
-
     today = datetime.now().strftime("%Y-%m-%d")
     history = list(state.get("conversation_history") or [])
     has_report = bool(state.get("final_report"))
-    user_request = state.get("user_request", "")
+    user_request = state.get("user_request", "").strip()
+
+    # First entry — no history, no user message yet → show welcome
+    if not history and not user_request:
+        return {
+            "next_action": "clarify",
+            "agent_message": _WELCOME,
+            "conversation_history": [{"role": "assistant", "content": _WELCOME}],
+        }
+
+    llm = get_llm(temperature=0.1)
 
     history_text = (
         "\n".join(f"  {m['role'].upper()}: {m['content']}" for m in history[-12:])
@@ -90,6 +129,7 @@ def conversation_node(state: FraudReportState) -> Dict[str, Any]:
                 has_report=has_report,
                 history=history_text,
                 user_request=user_request,
+                pillars_hint=_PILLARS_HINT,
             )),
             HumanMessage(content="What should I do next?"),
         ],
@@ -106,7 +146,7 @@ def conversation_node(state: FraudReportState) -> Dict[str, Any]:
         "conversation_history": updated_history,
     }
 
-    # Wipe stale analysis only when starting a fresh pipeline run
+    # Wipe stale pipeline state only when starting a fresh report run
     if result.action == "proceed":
         updates.update({
             "final_report": "",

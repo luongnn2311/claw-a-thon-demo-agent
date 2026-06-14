@@ -26,9 +26,12 @@ def search_web(query: str, max_results: int = 3) -> List[Dict[str, Any]]:
     Returns [] silently on any error.
     """
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
     except ImportError:
-        return []
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError:
+            return []
 
     anchored = f"{query} {_DOMAIN_ANCHOR}"
     docs: List[Dict[str, Any]] = []

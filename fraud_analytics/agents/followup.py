@@ -66,14 +66,14 @@ def get_raw_table(table_name: str) -> list:
 def search_fintech_web(query: str) -> list:
     """Search the internet for fintech / payment fraud risk knowledge.
 
-    ONLY call this when the existing report, findings, and domain knowledge
-    are NOT sufficient to answer the question — for example, the user asks
-    about an industry concept, regulation, or attack technique not covered
-    in the local knowledge base.
+    Call this when:
+    - The user explicitly asks to search the web / look online, OR
+    - The question is about an industry concept, regulation, or attack
+      technique and the local knowledge does NOT adequately cover it.
 
-    DO NOT call this if the local knowledge already covers the topic.
-    Results are supplementary context — synthesise them into your answer,
-    never quote them verbatim.
+    Do NOT call if the local knowledge already fully answers the question.
+    Use web results as supplementary background context — synthesise them
+    into your answer, never quote them verbatim.
 
     Args:
         query: concise search phrase (e.g. "3DS2 liability shift card fraud",
@@ -92,26 +92,32 @@ _FOLLOWUP_TOOLS = [
 ]
 _TOOL_MAP = {t.name: t for t in _FOLLOWUP_TOOLS}
 
-_SYSTEM = """You are a ZaloPay Risk Analyst answering a follow-up question about a fraud report.
+_SYSTEM = """You are a ZaloPay Fraud Analytics Assistant — a domain expert on ZaloPay fraud, risk, and promo abuse.
+
+You help with TWO types of questions:
+  A. General questions — domain concepts, ZaloPay terminology, fraud patterns, thresholds,
+     team ownership, "what is X", "explain Y", "how does Z work"
+  B. Data / report questions — specific numbers from ZaloPay data, follow-up on an existing report
 
 TOOL USAGE RULES — follow strictly:
 1. data tools (get_fraud_monthly_detail, get_raw_table, etc.)
-   → call ONLY when the question asks for specific numbers/tables not in the existing report
+   → call ONLY when the question asks for specific numbers/data not already available in context
+   → for general/concept questions, do NOT call data tools
 2. search_fintech_web
-   → call ONLY when BOTH of these are true:
-      a. The question is about an industry concept, regulation, or technique
-      b. The existing report + domain knowledge below do NOT adequately cover it
-   → NEVER call if the local knowledge already answers the question
+   → call when:
+      a. The user explicitly asks to search / look online, OR
+      b. The question is about an industry concept not covered by local knowledge
+   → do NOT call if the local knowledge already fully answers the question
    → Use web results as background context to enrich your answer — never quote them directly
 
 ANSWER RULES:
 - Be concise — 3-8 sentences unless a table is genuinely needed
-- Always cite specific numbers from the report or tool output
-- Use ZaloPay priority labels (CRITICAL / ALERT / WATCH / STABLE) when relevant
+- For concept/domain questions, answer from domain knowledge — no data tools needed
+- For data questions, cite specific numbers with ZaloPay priority labels (CRITICAL / ALERT / WATCH / STABLE)
 - If something truly cannot be answered from any available source, say so clearly
 
 Context available:
-EXISTING REPORT (excerpt):
+EXISTING REPORT (excerpt — empty if no report generated yet):
 {report_excerpt}
 
 FINDINGS:

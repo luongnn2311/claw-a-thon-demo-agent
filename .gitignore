@@ -9,4 +9,5 @@ output/
 .idea/
 models/
 .agentbase/
+projectF/.greennode.json
 projectF/
