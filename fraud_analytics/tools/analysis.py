@@ -23,16 +23,29 @@ def analyze_fraud_monthly(records: List[Dict]) -> List[Dict[str, str]]:
     suggestions = []
 
     mom_pct = curr.get("MoM_pct_change", 0) or 0
+    total = curr.get("total_loss", 0) or 0
 
+    # Absolute monthly loss thresholds (3–4.5B normal, >6B alert)
+    if total > 6000:
+        suggestions.append({"priority": "ALERT",
+            "message": f"Monthly total fraud loss at {total:.0f}M VND exceeds 6B alert threshold. Escalate to risk management immediately."})
+    elif total > 4500:
+        suggestions.append({"priority": "WATCH",
+            "message": f"Monthly total fraud loss at {total:.0f}M VND in warning zone (4.5–6B VND). Monitor daily and investigate segment drivers."})
+    elif 0 < total < 3000:
+        suggestions.append({"priority": "NOTE",
+            "message": f"Monthly total fraud loss at {total:.0f}M VND is below normal baseline (3–4.5B). Verify detection coverage is complete."})
+
+    # Relative MoM change thresholds
     if mom_pct > 40:
         suggestions.append({"priority": "CRITICAL",
-            "message": f"Total fraud loss increased +{mom_pct:.0f}% MoM to {curr.get('total_loss', 0):.0f}M VND. Immediate investigation required."})
+            "message": f"Total fraud loss increased +{mom_pct:.0f}% MoM to {total:.0f}M VND. Immediate investigation required."})
     elif mom_pct > 20:
         suggestions.append({"priority": "ALERT",
             "message": f"Total fraud loss increased +{mom_pct:.0f}% MoM. Identify segment driver and deploy rule within 48h."})
     elif mom_pct < -20:
         suggestions.append({"priority": "CONFIRM",
-            "message": f"Total fraud loss declined {mom_pct:.0f}% MoM to {curr.get('total_loss', 0):.0f}M VND. Confirm controls are holding; check for detection gaps."})
+            "message": f"Total fraud loss declined {mom_pct:.0f}% MoM to {total:.0f}M VND. Confirm controls are holding; check for detection gaps."})
 
     # International segment
     intl_change = (curr.get("international_loss", 0) or 0) - (prev.get("international_loss", 0) or 0)
@@ -86,10 +99,23 @@ def analyze_fraud_weekly(records: List[Dict]) -> List[Dict[str, str]]:
     suggestions = []
 
     wow_pct = curr.get("WoW_pct_change", 0) or 0
+    total = curr.get("total_loss", 0) or 0
 
+    # Absolute weekly loss thresholds (derived from monthly: 3–4.5B ÷ 4.3 weeks)
+    if total > 1400:
+        suggestions.append({"priority": "ALERT",
+            "message": f"Weekly total fraud loss at {total:.0f}M VND exceeds alert threshold (1.4B/week). Escalate to risk management immediately."})
+    elif total > 1050:
+        suggestions.append({"priority": "WATCH",
+            "message": f"Weekly total fraud loss at {total:.0f}M VND in warning zone (1.05–1.4B VND/week). Monitor daily and track segment drivers."})
+    elif 0 < total < 700:
+        suggestions.append({"priority": "NOTE",
+            "message": f"Weekly total fraud loss at {total:.0f}M VND below normal baseline (700M–1.05B/week). Verify detection coverage is complete."})
+
+    # Relative WoW change thresholds
     if wow_pct > 50:
         suggestions.append({"priority": "CRITICAL",
-            "message": f"Weekly fraud jumped +{wow_pct:.0f}% WoW to {curr.get('total_loss', 0):.0f}M VND. Investigate same-day with ACR."})
+            "message": f"Weekly fraud jumped +{wow_pct:.0f}% WoW to {total:.0f}M VND. Investigate same-day with ACR."})
     elif wow_pct > 20:
         suggestions.append({"priority": "ALERT",
             "message": f"Weekly fraud +{wow_pct:.0f}% WoW. Identify segment driver and deploy rule within 48h."})
@@ -158,6 +184,46 @@ def analyze_promo_weekly(records: List[Dict], detection_healthy: bool = True) ->
     if not suggestions:
         suggestions.append({"priority": "STABLE",
             "message": f"%abuse at {pct:.2f}%, within normal baseline (1.5–2.5%). Continue BAU monitoring."})
+
+    return suggestions
+
+
+def analyze_promo_monthly(records: List[Dict]) -> List[Dict[str, str]]:
+    """Analyze monthly promo abuse context. Accepts promo_weekly_abuse records
+    and evaluates the aggregated %abuse across all weeks in the period."""
+    if not records:
+        return [{"priority": "NOTE", "message": "No promo data available for monthly analysis."}]
+
+    # Aggregate weekly records to compute monthly-level pct_abuse
+    total_spending = sum((r.get("total_spending") or 0) for r in records)
+    total_abuse = sum((r.get("total_abuse") or 0) for r in records)
+    if total_spending <= 0:
+        return [{"priority": "NOTE", "message": "Monthly promo spending total is zero — cannot compute %abuse."}]
+
+    pct = total_abuse / total_spending * 100
+    suggestions = []
+
+    # Monthly promo thresholds: Normal 1.8–3.5%, Investigation >5%
+    if pct > 5.0:
+        suggestions.append({"priority": "CRITICAL",
+            "message": f"Monthly promo %abuse at {pct:.2f}% exceeds investigation threshold (5%). Audit all active campaigns immediately. Check for campaign splitting to evade per-campaign limits."})
+    elif pct > 3.5:
+        suggestions.append({"priority": "ALERT",
+            "message": f"Monthly promo %abuse at {pct:.2f}% above 3.5% warning threshold. Identify top campaigns by absolute abuse amount and investigate Coin2DD path for SME involvement."})
+    elif pct < 1.8 and pct > 0:
+        suggestions.append({"priority": "CAUTION",
+            "message": f"Monthly promo %abuse at {pct:.2f}% is below normal baseline (1.8–3.5%). Verify FAD / BAD_V2 detection sources are healthy before interpreting as low risk."})
+    else:
+        suggestions.append({"priority": "STABLE",
+            "message": f"Monthly promo %abuse at {pct:.2f}%, within normal baseline (1.8–3.5%). Continue BAU monitoring."})
+
+    # Week-over-week trend across the month
+    if len(records) >= 2:
+        first_pct = records[0].get("pct_abuse") or 0
+        last_pct = records[-1].get("pct_abuse") or 0
+        if last_pct > first_pct * 1.5 and last_pct > 2.0:
+            suggestions.append({"priority": "WATCH",
+                "message": f"Promo abuse is trending upward within the month ({first_pct:.2f}% → {last_pct:.2f}%). Potential new campaign or abuser cohort forming."})
 
     return suggestions
 

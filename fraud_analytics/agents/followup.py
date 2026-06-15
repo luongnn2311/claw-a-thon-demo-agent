@@ -17,7 +17,8 @@ from fraud_analytics.config import VECTOR_STORE_PATH
 from fraud_analytics.tools.pipeline import run_pipeline
 from fraud_analytics.tools.analysis import (
     analyze_fraud_monthly, analyze_fraud_weekly,
-    analyze_promo_weekly, analyze_coin2dd, analyze_appid_breakdown,
+    analyze_promo_weekly, analyze_promo_monthly,
+    analyze_coin2dd, analyze_appid_breakdown,
 )
 from fraud_analytics.knowledge.web_enrichment import search_web
 
@@ -40,6 +41,13 @@ def get_promo_detail() -> list:
     """Get detailed promo abuse analysis for the latest weeks."""
     r = run_pipeline()
     return analyze_promo_weekly(r.get("promo_weekly_abuse", []))
+
+@tool
+def get_promo_monthly_detail() -> list:
+    """Get monthly-level promo abuse analysis (aggregates all weeks in the period).
+    Uses monthly thresholds: normal 1.8–3.5%, alert >5%."""
+    r = run_pipeline()
+    return analyze_promo_monthly(r.get("promo_weekly_abuse", []))
 
 @tool
 def get_coin2dd_detail() -> list:
@@ -85,6 +93,7 @@ _FOLLOWUP_TOOLS = [
     get_fraud_monthly_detail,
     get_fraud_weekly_detail,
     get_promo_detail,
+    get_promo_monthly_detail,
     get_coin2dd_detail,
     get_appid_detail,
     get_raw_table,

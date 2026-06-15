@@ -34,6 +34,10 @@ Warning: 0.75–1%
 Alert: fraud_amt >1B AND rate ≥1%
 
 WEEKLY FRAUD LOSS:
+Normal range: 700M–1,050M VND/week (derived: monthly 3–4.5B ÷ 4.3 weeks)
+Warning: >1,050M–1,150M VND/week
+Alert: >1,400M VND/week — escalate to risk management
+Low anomaly: <700M/week — verify detection coverage is complete
 Spike: >+20% WoW
 Critical spike: >+50% WoW — investigate same-day with ACR
 Drop: <-30% WoW — verify not a detection gap

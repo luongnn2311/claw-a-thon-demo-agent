@@ -13,6 +13,7 @@ from fraud_analytics.tools.analysis import (
     analyze_fraud_monthly,
     analyze_fraud_weekly,
     analyze_promo_weekly,
+    analyze_promo_monthly,
     analyze_coin2dd,
     analyze_appid_breakdown,
 )
@@ -60,6 +61,15 @@ def tool_analyze_promo_weekly() -> list:
     return analyze_promo_weekly(records)
 
 @tool
+def tool_analyze_promo_monthly() -> list:
+    """Run suggest_promo_monthly analysis: aggregates all weeks in the period to compute
+    monthly-level %abuse. Use for monthly reports or when monthly promo context is needed.
+    Returns prioritized suggestions using monthly thresholds (normal 1.8–3.5%, alert >5%)."""
+    result = run_pipeline()
+    records = result.get("promo_weekly_abuse", [])
+    return analyze_promo_monthly(records)
+
+@tool
 def tool_analyze_coin2dd() -> list:
     """Run suggest_coin2dd analysis on the latest coin2dd_monthly table.
     Returns prioritized suggestions for Coin2DD abuse."""
@@ -81,6 +91,7 @@ ALL_TOOLS = [
     tool_analyze_fraud_monthly,
     tool_analyze_fraud_weekly,
     tool_analyze_promo_weekly,
+    tool_analyze_promo_monthly,
     tool_analyze_coin2dd,
     tool_analyze_appid_breakdown,
 ]
@@ -96,7 +107,8 @@ TOOL CALLING STRATEGY:
 2. Then call the relevant analysis tool(s) based on fraud_pillar and tables_to_use:
    - fraud_loss / weekly      → tool_analyze_fraud_weekly
    - fraud_loss / monthly     → tool_analyze_fraud_monthly
-   - promo_abuse              → tool_analyze_promo_weekly
+   - promo_abuse / weekly     → tool_analyze_promo_weekly
+   - promo_abuse / monthly    → tool_analyze_promo_monthly (aggregates weeks → monthly %abuse)
    - coin2dd                  → tool_analyze_coin2dd
    - appid_breakdown          → tool_analyze_appid_breakdown
    - general                  → call ALL analysis tools
