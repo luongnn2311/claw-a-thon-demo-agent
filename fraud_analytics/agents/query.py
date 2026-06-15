@@ -129,6 +129,8 @@ _MAX_LOOP = 10
 
 
 def query_node(state: FraudReportState) -> Dict[str, Any]:
+    import time, logging
+    _t0 = time.time()
     llm = get_llm(temperature=0.0)
     llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
@@ -203,6 +205,7 @@ def query_node(state: FraudReportState) -> Dict[str, Any]:
     merged_query = {**existing_results, **new_query_results}
     merged_analysis = {**existing_analysis, **new_analysis_results}
 
+    logging.getLogger(__name__).info("TIMING query_node %.1fs", time.time() - _t0)
     return {
         "query_results": merged_query,
         "analysis_results": merged_analysis,

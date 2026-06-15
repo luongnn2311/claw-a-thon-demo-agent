@@ -49,6 +49,8 @@ Scope: {report_type} | {fraud_pillar} | {start_date} to {end_date}"""
 
 
 def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
+    import time, logging
+    _t0 = time.time()
     llm = get_llm(temperature=0.3)
 
     docs = state.get("retrieved_documents") or []
@@ -89,6 +91,7 @@ def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
 
     findings = [f.model_dump() for f in result.findings]
 
+    logging.getLogger(__name__).info("TIMING reasoning_node %.1fs", time.time() - _t0)
     return {
         "findings": findings,
         "messages": state.get("messages", []) + [{

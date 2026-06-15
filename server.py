@@ -175,6 +175,10 @@ async def chat(req: ChatRequest):
     if done and not agent_message:
         agent_message = state.get("agent_message") or "Session ended."
 
+    # When a report was just generated but no agent message is set, surface a brief prompt
+    if new_report and not agent_message:
+        agent_message = "✅ Report generated above. Ask a follow-up question or request another report."
+
     if done:
         _sessions.pop(session_id, None)
 
@@ -197,6 +201,180 @@ def close_session(session_id: str):
 def list_sessions():
     """Debug endpoint — lists active session IDs."""
     return {"active_sessions": list(_sessions.keys())}
+
+
+def _agentbase_headers() -> dict:
+    """Build auth headers for AgentBase Memory REST API using injected runtime credentials."""
+    import httpx, time
+
+    client_id     = os.getenv("GREENNODE_CLIENT_ID", "")
+    client_secret = os.getenv("GREENNODE_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
+        # Try reading from .greennode.json for local dev
+        import json as _json
+        try:
+            with open(".greennode.json") as f:
+                creds = _json.load(f)
+            client_id     = creds.get("client_id", "")
+            client_secret = creds.get("client_secret", "")
+        except Exception:
+            return {}
+
+    token_url = "https://iamapis.vngcloud.vn/accounts-api/v2/auth/token"
+    resp = httpx.post(token_url, data={
+        "grant_type":    "client_credentials",
+        "client_id":     client_id,
+        "client_secret": client_secret,
+    }, timeout=10)
+    resp.raise_for_status()
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _decode_memory_events(events: list) -> dict:
+    """Decode AgentBase memory blob events → conversation_history + final_report."""
+    import base64, msgpack as _mp
+
+    conv_events   = []
+    report_events = []
+
+    for e in events:
+        b64 = e.get("payload", {}).get("binaryData", "")
+        if not b64:
+            continue
+        try:
+            parsed = __import__("json").loads(base64.b64decode(b64).decode("utf-8", errors="replace"))
+            if parsed.get("event_type") != "channel_data":
+                continue
+            ch  = parsed.get("channel", "")
+            val = parsed.get("value", {})
+            if not (isinstance(val, dict) and val.get("type") == "msgpack"):
+                continue
+            decoded = _mp.unpackb(base64.b64decode(val["data"]), raw=False)
+            ts = e.get("eventTimestamp", "")
+            if ch == "conversation_history":
+                conv_events.append((ts, decoded))
+            elif ch == "final_report":
+                report_events.append((ts, decoded))
+        except Exception:
+            pass
+
+    conv_events.sort(key=lambda x: x[0])
+    report_events.sort(key=lambda x: x[0])
+
+    history = conv_events[-1][1]  if conv_events  else []
+    report  = report_events[-1][1] if report_events else ""
+
+    if not isinstance(history, list):
+        history = []
+    if not isinstance(report, str):
+        report = ""
+
+    return {"history": history, "has_report": bool(report), "report": report}
+
+
+@app.get("/conversations")
+async def list_conversations():
+    """List all sessions across all actors in AgentBase memory."""
+    memory_id = os.getenv("AGENTBASE_MEMORY_ID", "")
+    if not memory_id:
+        return JSONResponse({"sessions": []})
+
+    def _fetch():
+        import httpx
+        headers = _agentbase_headers()
+        if not headers:
+            return []
+        base = "https://agentbase.api.vngcloud.vn/memory"
+
+        # 1. List all actors
+        r = httpx.get(f"{base}/memories/{memory_id}/actors", headers=headers, timeout=10)
+        r.raise_for_status()
+        actors = [a["actorId"] for a in (r.json().get("listData") or [])]
+
+        # 2. Collect sessions for each actor
+        sessions = []
+        for actor in actors:
+            r2 = httpx.get(
+                f"{base}/memories/{memory_id}/actors/{actor}/sessions",
+                params={"page": 1, "size": 100},
+                headers=headers, timeout=10,
+            )
+            r2.raise_for_status()
+            for s in r2.json().get("listData") or []:
+                sid = s.get("sessionId", "")
+                if sid and not any(x["session_id"] == sid for x in sessions):
+                    sessions.append({"session_id": sid, "actor_id": actor})
+        return sessions
+
+    try:
+        loop = asyncio.get_event_loop()
+        sessions = await asyncio.wait_for(loop.run_in_executor(_executor, _fetch), timeout=20)
+        return JSONResponse({"sessions": sessions})
+    except Exception as exc:
+        log.warning("list_conversations failed: %s", exc)
+        return JSONResponse({"sessions": []})
+
+
+@app.get("/conversations/{session_id}/history")
+async def get_conversation_history(session_id: str, actor_id: str = ""):
+    """Decode conversation history directly from AgentBase memory events."""
+    memory_id = os.getenv("AGENTBASE_MEMORY_ID", "")
+
+    # Fallback: read from LangGraph in-process graph (for active HTTP sessions)
+    if not memory_id:
+        def _local():
+            from fraud_analytics.graph.fraud_graph import get_chat_graph, make_chat_config
+            graph  = get_chat_graph()
+            config = make_chat_config(session_id, actor_id or None)
+            state  = graph.get_state(config)
+            if not state or not state.values:
+                return {"history": [], "has_report": False, "report": ""}
+            history = state.values.get("conversation_history") or []
+            report  = state.values.get("final_report") or ""
+            return {"history": history, "has_report": bool(report), "report": report}
+        try:
+            loop = asyncio.get_event_loop()
+            data = await asyncio.wait_for(loop.run_in_executor(_executor, _local), timeout=30)
+            return JSONResponse(data)
+        except Exception as exc:
+            log.warning("get_conversation_history(%s) local failed: %s", session_id, exc)
+            return JSONResponse({"history": [], "has_report": False, "report": ""})
+
+    def _fetch_events():
+        import httpx
+        headers = _agentbase_headers()
+        if not headers:
+            return []
+        base    = "https://agentbase.api.vngcloud.vn/memory"
+
+        # Determine actor — use provided actor_id or try all actors
+        actors_to_try = [actor_id] if actor_id else []
+        if not actors_to_try:
+            r = httpx.get(f"{base}/memories/{memory_id}/actors", headers=headers, timeout=10)
+            r.raise_for_status()
+            actors_to_try = [a["actorId"] for a in (r.json().get("listData") or [])]
+
+        for actor in actors_to_try:
+            r2 = httpx.get(
+                f"{base}/memories/{memory_id}/actors/{actor}/sessions/{session_id}/events",
+                params={"page": 1, "size": 200},
+                headers=headers, timeout=15,
+            )
+            if r2.status_code == 200:
+                events = r2.json().get("listData") or []
+                if events:
+                    return events
+        return []
+
+    try:
+        loop = asyncio.get_event_loop()
+        events = await asyncio.wait_for(loop.run_in_executor(_executor, _fetch_events), timeout=25)
+        data   = _decode_memory_events(events)
+        return JSONResponse(data)
+    except Exception as exc:
+        log.warning("get_conversation_history(%s) failed: %s", session_id, exc)
+        return JSONResponse({"history": [], "has_report": False, "report": ""})
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

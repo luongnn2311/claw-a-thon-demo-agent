@@ -7,6 +7,7 @@ Uses: existing report + findings + analysis_results + knowledge retrieval
 """
 from __future__ import annotations
 import json
+import pandas as pd
 from typing import Dict, Any
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
@@ -62,13 +63,62 @@ def get_appid_detail() -> list:
     return analyze_appid_breakdown(r.get("appid_fraud_breakdown", []))
 
 @tool
-def get_raw_table(table_name: str) -> list:
-    """Get the raw records for a specific output table.
+def get_raw_table(table_name: str) -> str:
+    """Get the latest records from a summary output table as a markdown table (max 20 rows).
     table_name must be one of: fraud_monthly_loss, fraud_weekly_loss,
     promo_weekly_abuse, coin2dd_monthly, appid_fraud_breakdown."""
     r = run_pipeline()
     data = r.get(table_name, [])
-    return data[-10:] if data else []  # return last 10 rows
+    if not data:
+        return f"No data found for table `{table_name}`."
+    df = pd.DataFrame(data)
+    total = len(df)
+    shown = min(total, 20)
+    tail = df.tail(shown).reset_index(drop=True)
+    cols = list(tail.columns)
+    header = "| " + " | ".join(str(c) for c in cols) + " |"
+    sep = "| " + " | ".join("---" for _ in cols) + " |"
+    rows = ["| " + " | ".join(str(v) for v in row) + " |" for _, row in tail.iterrows()]
+    md = "\n".join([header, sep] + rows)
+    note = f"\n\n*Showing last {shown} of {total} rows.*" if total > shown else f"\n\n*{total} rows total.*"
+    return md + note
+
+
+@tool
+def query_input_files(question: str) -> str:
+    """Generate and run pandas code to answer a question about the raw input CSV files.
+
+    Use this when the user asks about:
+    - Individual transactions, specific users, campaigns, or promotions
+    - Raw source data (not the summary output tables)
+    - Custom aggregations or filters on input files
+    - Anything in: promo_transactions_with_abuse_flag, raw_clean_tpe_log,
+      raw_post_mortem_account_risk(_gateway), raw_promo_abuse_dim_user_v2,
+      raw_dim_user_promo_profile, raw_promotion_transaction_history
+
+    Results are automatically capped at 20 rows and returned as a markdown table.
+    """
+    from fraud_analytics.tools.code_executor import execute_pandas_code, build_schema_context
+
+    schema = build_schema_context()
+    code_gen_prompt = (
+        "You are a pandas code generator for ZaloPay fraud analytics.\n\n"
+        "The following DataFrames are already loaded in the execution namespace.\n"
+        "Do NOT use pd.read_csv — the data is already available:\n\n"
+        f"{schema}\n\n"
+        "Rules:\n"
+        "1. Use ONLY pandas (available as `pd`) and the pre-loaded DataFrames above.\n"
+        "2. Do NOT write any import statements.\n"
+        "3. Assign your final answer to a variable named `result` (must be a DataFrame or scalar).\n"
+        "4. If result is a DataFrame it will be capped at 20 rows automatically.\n"
+        "5. Output ONLY the Python code — no explanations, no markdown fences."
+    )
+    llm = get_llm(temperature=0.0)
+    response = llm.invoke([
+        SystemMessage(content=code_gen_prompt),
+        HumanMessage(content=question),
+    ])
+    return execute_pandas_code(response.content.strip())
 
 @tool
 def search_fintech_web(query: str) -> list:
@@ -97,30 +147,46 @@ _FOLLOWUP_TOOLS = [
     get_coin2dd_detail,
     get_appid_detail,
     get_raw_table,
+    query_input_files,
     search_fintech_web,
 ]
 _TOOL_MAP = {t.name: t for t in _FOLLOWUP_TOOLS}
 
 _SYSTEM = """You are a ZaloPay Fraud Analytics Assistant — a domain expert on ZaloPay fraud, risk, and promo abuse.
 
-You help with TWO types of questions:
+CONVERSATION CONTEXT RULE (most important):
+The conversation history is included as actual messages BEFORE the user's current question.
+Always read those prior turns to resolve any ambiguous references ("it", "that", "those",
+"why is it high", "tell me more", "what about last week") before answering.
+If the current question is a follow-up, anchor your answer explicitly to what was said before —
+e.g. "Regarding the VNPAY loss we just discussed…" — so the reply reads as a coherent continuation.
+
+You help with THREE types of questions:
   A. General questions — domain concepts, ZaloPay terminology, fraud patterns, thresholds,
      team ownership, "what is X", "explain Y", "how does Z work"
-  B. Data / report questions — specific numbers from ZaloPay data, follow-up on an existing report
+  B. Summary data questions — specific numbers from ZaloPay summary output tables or an existing report.
+     Use get_raw_table or the get_*_detail analysis tools.
+  C. Raw input data questions — queries about individual transactions, users, campaigns,
+     or anything in the source CSV files. Use query_input_files.
 
 TOOL USAGE RULES — follow strictly:
-1. data tools (get_fraud_monthly_detail, get_raw_table, etc.)
-   → call ONLY when the question asks for specific numbers/data not already available in context
-   → for general/concept questions, do NOT call data tools
-2. search_fintech_web
+1. get_raw_table / get_*_detail tools
+   → call when the user asks for specific metrics/figures from the summary output tables
+   → the tool returns a pre-formatted markdown table — pass it through to the user AS-IS, do not reformat
+2. query_input_files
+   → call when the user asks about raw/source data: individual transactions, specific users,
+     campaign details, or custom aggregations on input files
+   → the tool generates and runs pandas code and returns a markdown table — pass it through AS-IS
+3. search_fintech_web
    → call when:
       a. The user explicitly asks to search / look online, OR
       b. The question is about an industry concept not covered by local knowledge
    → do NOT call if the local knowledge already fully answers the question
-   → Use web results as background context to enrich your answer — never quote them directly
 
 ANSWER RULES:
-- Be concise — 3-8 sentences unless a table is genuinely needed
+- Open with a one-sentence context anchor when the question is a follow-up (reference the prior topic)
+- When a tool returns a markdown table, present it directly — do not paraphrase or summarize the rows
+- Be concise — 3-8 sentences for concept questions; tables for data questions
 - For concept/domain questions, answer from domain knowledge — no data tools needed
 - For data questions, cite specific numbers with ZaloPay priority labels (CRITICAL / ALERT / WATCH / STABLE)
 - If something truly cannot be answered from any available source, say so clearly
@@ -139,6 +205,9 @@ DOMAIN KNOWLEDGE:
 {knowledge}
 
 Current report scope: {report_type} | {fraud_pillar} | {date_range}
+
+Recent conversation (from graph state — use to resolve references like "it", "that", "why"):
+{history}
 """
 
 _kb = None
@@ -179,6 +248,13 @@ def followup_node(state: FraudReportState) -> Dict[str, Any]:
     # Trim report to most relevant part (avoid huge context)
     report_excerpt = final_report[:2000] if final_report else "No report available."
 
+    # Last 4 turns from graph state (excludes current question which is user_request)
+    history = list(state.get("conversation_history") or [])
+    recent = history[-5:-1] if len(history) > 1 else []
+    history_text = "\n".join(
+        f"  {m['role'].upper()}: {m['content'][:300]}" for m in recent
+    ) or "  (none)"
+
     system_content = _SYSTEM.format(
         report_excerpt=report_excerpt,
         findings=findings_str,
@@ -187,6 +263,7 @@ def followup_node(state: FraudReportState) -> Dict[str, Any]:
         report_type=state.get("report_type", "N/A"),
         fraud_pillar=state.get("fraud_pillar", "N/A"),
         date_range=f"{dr.get('start', 'N/A')} to {dr.get('end', 'N/A')}",
+        history=history_text,
     )
 
     messages = [
@@ -212,7 +289,7 @@ def followup_node(state: FraudReportState) -> Dict[str, Any]:
 
     answer = response.content.strip() if hasattr(response, "content") else "I couldn't answer that question."
 
-    history = list(state.get("conversation_history") or [])
+    history = list(history)
     history.append({"role": "assistant", "content": answer})
 
     return {

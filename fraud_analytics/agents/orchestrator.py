@@ -76,6 +76,8 @@ def _add_baseline(report_type: str, start: str, end: str) -> tuple[str, str]:
 
 
 def orchestrator_node(state: FraudReportState) -> Dict[str, Any]:
+    import logging
+    _t0 = time.time()
     llm = get_llm(temperature=0.0)
 
     today = datetime.now().date()
@@ -108,6 +110,7 @@ def orchestrator_node(state: FraudReportState) -> Dict[str, Any]:
     }
     tables_to_use = table_map.get(pillar, table_map["general"])
 
+    logging.getLogger(__name__).info("TIMING orchestrator_node %.1fs", time.time() - _t0)
     return {
         "report_type":   result.report_type,
         "date_range":    {"start": start, "end": end},

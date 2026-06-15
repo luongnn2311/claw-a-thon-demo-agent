@@ -29,6 +29,7 @@ COPY data/knowledge/  ./data/knowledge/
 COPY main.py .
 COPY server.py .
 COPY frontend/ ./frontend/
+COPY ["projectF/data input/", "./projectF/data input/"]
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 # Note: vector store is built at container startup (FAISS uses AVX2 which

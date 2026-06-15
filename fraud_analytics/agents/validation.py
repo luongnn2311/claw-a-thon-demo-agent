@@ -95,6 +95,8 @@ def _total_analysis_items(analysis_results: Dict[str, Any]) -> int:
 
 
 def validation_node(state: FraudReportState) -> Dict[str, Any]:
+    import time, logging
+    _t0 = time.time()
     retry_count = state.get("retry_count", 0)
 
     # Hard circuit breaker — force pass at max retries
@@ -199,6 +201,7 @@ def validation_node(state: FraudReportState) -> Dict[str, Any]:
 
     new_retry = retry_count + (0 if result.validated else 1)
 
+    logging.getLogger(__name__).info("TIMING validation_node %.1fs", time.time() - _t0)
     return {
         "validation_result": result.model_dump(),
         "retry_count": new_retry,

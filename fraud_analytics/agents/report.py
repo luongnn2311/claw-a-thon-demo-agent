@@ -44,6 +44,8 @@ Markdown table: | Priority | Action | Owner | Timeline |"""
 
 
 def report_node(state: FraudReportState) -> Dict[str, Any]:
+    import time, logging
+    _t0 = time.time()
     llm = get_llm(temperature=0.3, max_tokens=2000)
 
     findings      = state.get("findings") or []
@@ -100,6 +102,7 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
 {'═' * 72}
 """
 
+    logging.getLogger(__name__).info("TIMING report_node %.1fs", time.time() - _t0)
     return {
         "final_report": final_report,
         "messages": state.get("messages", [])

@@ -15,6 +15,8 @@ def _get_kb() -> FraudKnowledgeBase:
 
 
 def retrieval_node(state: FraudReportState) -> Dict[str, Any]:
+    import time, logging
+    _t0 = time.time()
     kb = _get_kb()
 
     pillar = state.get("fraud_pillar", "general")
@@ -39,6 +41,7 @@ def retrieval_node(state: FraudReportState) -> Dict[str, Any]:
 
     docs_to_keep = docs[: MAX_RETRIEVAL_DOCS * 2]
 
+    logging.getLogger(__name__).info("TIMING retrieval_node %.1fs", time.time() - _t0)
     return {
         "retrieved_documents": docs_to_keep,
         "messages": state.get("messages", [])

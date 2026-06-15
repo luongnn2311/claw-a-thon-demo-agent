@@ -106,6 +106,8 @@ _GREETINGS = {
 }
 
 def conversation_node(state: FraudReportState) -> Dict[str, Any]:
+    import time, logging
+    _t0 = time.time()
     today = datetime.now().strftime("%Y-%m-%d")
     history = list(state.get("conversation_history") or [])
     has_report = bool(state.get("final_report"))
@@ -155,6 +157,7 @@ def conversation_node(state: FraudReportState) -> Dict[str, Any]:
     if result.message:
         updated_history.append({"role": "assistant", "content": result.message})
 
+    logging.getLogger(__name__).info("TIMING conversation_node %.1fs action=%s", time.time() - _t0, result.action)
     updates: Dict[str, Any] = {
         "next_action": result.action,
         "agent_message": result.message,

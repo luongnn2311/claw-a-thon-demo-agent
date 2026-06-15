@@ -32,6 +32,8 @@ Sample table data (last 2 rows per table):
 
 
 def summarizer_node(state: FraudReportState) -> Dict[str, Any]:
+    import time, logging
+    _t0 = time.time()
     llm = get_llm(temperature=0.2)
 
     analysis_results = state.get("analysis_results") or {}
@@ -81,6 +83,7 @@ def summarizer_node(state: FraudReportState) -> Dict[str, Any]:
     paragraphs = [p.strip() for p in raw.split("\n\n") if p.strip()]
     summaries: List[str] = paragraphs if paragraphs else [raw]
 
+    logging.getLogger(__name__).info("TIMING summarizer_node %.1fs", time.time() - _t0)
     return {
         "summaries": summaries,
         "messages": state.get("messages", []) + [{

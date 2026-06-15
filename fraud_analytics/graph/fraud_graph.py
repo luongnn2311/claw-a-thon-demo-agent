@@ -153,15 +153,27 @@ def get_chat_graph():
     """
     global _chat_graph, _chat_checkpointer
     if _chat_graph is None:
-        from langgraph.checkpoint.memory import MemorySaver
-        _chat_checkpointer = MemorySaver()
+        import os
+        memory_id = os.getenv("AGENTBASE_MEMORY_ID", "")
+        if memory_id:
+            from greennode_agent_bridge import AgentBaseMemoryEvents
+            _chat_checkpointer = AgentBaseMemoryEvents(memory_id=memory_id)
+        else:
+            from langgraph.checkpoint.memory import MemorySaver
+            _chat_checkpointer = MemorySaver()
         _chat_graph = _build_chat_graph(_chat_checkpointer)
     return _chat_graph
 
 
-def make_chat_config(session_id: str) -> dict:
+def make_chat_config(session_id: str, actor_id: str | None = None) -> dict:
     """Return a LangGraph config scoped to a specific session / thread."""
-    return {"configurable": {"thread_id": session_id}}
+    import os
+    return {
+        "configurable": {
+            "thread_id": session_id,
+            "actor_id": actor_id or os.getenv("AGENTBASE_MEMORY_ACTOR_ID", "fraud-user"),
+        }
+    }
 
 
 def build_chat_graph():
@@ -170,5 +182,5 @@ def build_chat_graph():
     Returns (compiled_graph, config).
     """
     graph = get_chat_graph()
-    config = make_chat_config("fraud-chat-cli")
+    config = make_chat_config("fraud-chat-cli", actor_id="fraud-user-cli")
     return graph, config
