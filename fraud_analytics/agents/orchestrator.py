@@ -30,12 +30,23 @@ Output tables mapping:
   - appid_breakdown → appid_fraud_breakdown
   - general         → all 5 tables
 
-Date inference rules:
-  - "last week" → the 7 days ending yesterday
-  - "this week" → Monday to today
-  - "last month" → the full previous calendar month
-  - "past 30 days" → today minus 30 days to today
-  - If no date mentioned → default to last 7 days for weekly, last 30 days for monthly
+Date inference rules — ALWAYS include one comparison baseline period so WoW/MoM diffs are available:
+
+  Weekly report:
+    - "last week" or no date → start = Monday of the week BEFORE last week, end = last Sunday
+      Example: if today is 2026-06-15 (Mon), last complete week is Jun 8–14,
+               set start = 2026-06-01 (Mon 2 weeks ago), end = 2026-06-14
+    - "this week" → start = Monday of last week, end = today
+    - Specific week → start = Monday of the PREVIOUS week, end = Sunday of the requested week
+
+  Monthly report:
+    - "last month" or no date → start = 1st of the month BEFORE last month, end = last day of last month
+      Example: if today is 2026-06-15, last complete month is May,
+               set start = 2026-04-01, end = 2026-05-31
+    - "this month" → start = 1st of last month, end = today
+    - Specific month → start = 1st of the PREVIOUS month, end = last day of the requested month
+
+  General rule: always include ONE extra period before the requested window so diffs are computable.
 
 Today's date: {today}
 
