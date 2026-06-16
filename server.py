@@ -21,7 +21,7 @@ _executor = ThreadPoolExecutor(max_workers=10)
 SERVER_TIMEOUT: int = int(os.getenv("SERVER_TIMEOUT_SECONDS", "150"))
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -382,6 +382,94 @@ async def get_conversation_history(session_id: str, actor_id: str = ""):
     except Exception as exc:
         log.warning("get_conversation_history(%s) failed: %s", session_id, exc)
         return JSONResponse({"history": [], "has_report": False, "report": ""})
+
+
+# ── Microsoft Teams Bot Framework endpoint ────────────────────────────────────
+
+@app.post("/api/messages")
+async def teams_messages(req: Request):
+    """Bot Framework endpoint for Microsoft Teams channel."""
+    from botbuilder.core import BotFrameworkAdapterSettings, BotFrameworkAdapter, TurnContext
+    from botbuilder.schema import Activity
+
+    app_id     = os.getenv("MicrosoftAppId", "")
+    app_secret = os.getenv("MicrosoftAppPassword", "")
+
+    adapter = BotFrameworkAdapter(BotFrameworkAdapterSettings(app_id, app_secret))
+
+    body        = await req.json()
+    activity    = Activity().deserialize(body)
+    auth_header = req.headers.get("Authorization", "")
+
+    async def on_turn(turn_context: TurnContext):
+        if turn_context.activity.type != "message":
+            return
+
+        user_text  = (turn_context.activity.text or "").strip()
+        session_id = turn_context.activity.conversation.id
+
+        session = _get_or_create_session(session_id)
+
+        from fraud_analytics.graph.fraud_graph import get_chat_graph, make_chat_config
+        from langgraph.types import Command
+
+        graph  = get_chat_graph()
+        config = make_chat_config(session_id)
+
+        def _invoke():
+            if not session["started"]:
+                initial_state = {
+                    "user_request": user_text,
+                    "conversation_history": [{"role": "user", "content": user_text}],
+                    "retry_count": 0,
+                    "messages": [],
+                }
+                result = graph.invoke(initial_state, config)
+                session["started"] = True
+                return result
+            return graph.invoke(Command(resume=user_text), config)
+
+        try:
+            loop = asyncio.get_event_loop()
+            state = await asyncio.wait_for(
+                loop.run_in_executor(_executor, _invoke),
+                timeout=SERVER_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            _sessions.pop(session_id, None)
+            await turn_context.send_activity(f"⏱️ Request timed out after {SERVER_TIMEOUT}s.")
+            return
+        except Exception as exc:
+            log.exception("Teams graph error session=%s", session_id)
+            await turn_context.send_activity(f"❌ Error: {exc}")
+            return
+
+        snapshot   = graph.get_state(config)
+        done       = not snapshot.next
+        report     = state.get("final_report") or ""
+        new_report = ""
+        if report and report != session["seen_report"]:
+            new_report = report
+            session["seen_report"] = report
+
+        agent_message = snapshot.values.get("agent_message") or ""
+        if done and not agent_message:
+            agent_message = state.get("agent_message") or "Session ended."
+        if new_report and not agent_message:
+            agent_message = "✅ Report generated. Ask a follow-up or request another report."
+
+        if done:
+            _sessions.pop(session_id, None)
+
+        # Send report first, then the follow-up message
+        if new_report:
+            await turn_context.send_activity(new_report[:4000])  # Teams msg limit ~28k chars
+        if agent_message:
+            await turn_context.send_activity(agent_message)
+
+    await adapter.process_activity(activity, auth_header, on_turn)
+    from fastapi.responses import Response
+    return Response(status_code=200)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
