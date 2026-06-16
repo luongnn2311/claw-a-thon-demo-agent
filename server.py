@@ -204,13 +204,20 @@ def list_sessions():
 
 
 def _agentbase_headers() -> dict:
-    """Build auth headers for AgentBase Memory REST API using injected runtime credentials."""
-    import httpx, time
+    """Build auth headers for AgentBase Memory REST API using user IAM credentials.
 
-    client_id     = os.getenv("GREENNODE_CLIENT_ID", "")
-    client_secret = os.getenv("GREENNODE_CLIENT_SECRET", "")
+    Reads AGENTBASE_IAM_CLIENT_ID / AGENTBASE_IAM_CLIENT_SECRET from env first —
+    these are dedicated vars that the runtime does NOT auto-inject, so they always
+    hold the real user credentials even when GREENNODE_CLIENT_ID is overridden by
+    the runtime service-account injection.
+    Falls back to .greennode.json for local dev.
+    """
+    import httpx
+
+    client_id     = os.getenv("AGENTBASE_IAM_CLIENT_ID", "")
+    client_secret = os.getenv("AGENTBASE_IAM_CLIENT_SECRET", "")
     if not client_id or not client_secret:
-        # Try reading from .greennode.json for local dev
+        # Local dev fallback — .greennode.json not present in deployed containers
         import json as _json
         try:
             with open(".greennode.json") as f:
