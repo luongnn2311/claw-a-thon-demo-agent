@@ -194,6 +194,8 @@ TOOL USAGE RULES — follow strictly:
 ANSWER RULES:
 - FORMAT FIRST: If the user specifies an output format or structure in their question, follow it EXACTLY.
   Do not impose the standard report template. The user's requested format overrides everything.
+- NEVER use LaTeX syntax ($, $$, \frac, \text{}, \times, etc.) in any response. Write formulas
+  in plain text only, e.g. "Fraud Rate = Total Fraud Loss / TPV × 100%".
 - Open with a one-sentence context anchor when the question is a follow-up (reference the prior topic)
 - When a tool returns a markdown table, present it directly — do not paraphrase or summarize the rows
 - For concept/domain questions, answer from domain knowledge — no data tools needed
