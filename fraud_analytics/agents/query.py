@@ -4,10 +4,8 @@ The LLM decides which analysis functions to call based on report_type + fraud_pi
 """
 from __future__ import annotations
 from typing import Dict, Any
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from fraud_analytics.state import FraudReportState
-from fraud_analytics.config import get_llm
 from fraud_analytics.tools.pipeline import run_pipeline
 from fraud_analytics.tools.analysis import (
     analyze_fraud_monthly,
@@ -107,117 +105,73 @@ ALL_TOOLS = [
 
 _TOOL_MAP = {t.name: t for t in ALL_TOOLS}
 
-_SYSTEM = """You are the Data Query Agent for a ZaloPay Fraud Analytics System.
+# Direct dispatch: maps (pillar, report_type) → analysis functions to call
+# Eliminates the LLM tool-calling loop entirely for known pillars.
+_DISPATCH: Dict[str, Dict[str, list]] = {
+    "fraud_loss":      {"weekly": [tool_analyze_fraud_weekly],
+                        "monthly": [tool_analyze_fraud_monthly],
+                        "adhoc":  [tool_analyze_fraud_weekly, tool_analyze_fraud_monthly]},
+    "promo_abuse":     {"weekly": [tool_analyze_promo_weekly],
+                        "monthly": [tool_analyze_promo_monthly],
+                        "adhoc":  [tool_analyze_promo_weekly, tool_analyze_promo_monthly]},
+    "coin2dd":         {"*": [tool_analyze_coin2dd]},
+    "appid_breakdown": {"*": [tool_analyze_appid_breakdown]},
+    "general":         {"*": [tool_analyze_fraud_weekly, tool_analyze_fraud_monthly,
+                               tool_analyze_promo_weekly, tool_analyze_promo_monthly,
+                               tool_analyze_coin2dd, tool_analyze_appid_breakdown]},
+}
 
-Your job is to call the right tools to gather and analyze data for the fraud report.
 
-TOOL CALLING STRATEGY:
-1. ALWAYS call tool_run_pipeline first to load all 5 tables.
-2. Then call the relevant analysis tool(s) based on fraud_pillar and tables_to_use:
-   - fraud_loss / weekly      → tool_analyze_fraud_weekly
-   - fraud_loss / monthly     → tool_analyze_fraud_monthly
-   - promo_abuse / weekly     → tool_analyze_promo_weekly
-   - promo_abuse / monthly    → tool_analyze_promo_monthly (aggregates weeks → monthly %abuse)
-   - coin2dd                  → tool_analyze_coin2dd
-   - appid_breakdown          → tool_analyze_appid_breakdown
-   - general                  → call ALL analysis tools
-
-Context:
-  report_type   : {report_type}
-  fraud_pillar  : {fraud_pillar}
-  tables_to_use : {tables_to_use}
-  date_range    : {start_date} to {end_date}
-  retry_count   : {retry_count}
-  already_called: {already_called}
-
-Rules:
-- Do NOT call tools already in already_called — cached results are reused automatically.
-- Stop after all relevant analysis tools have been called."""
-
-_MAX_LOOP = 10
+def _get_analysis_fns(pillar: str, report_type: str) -> list:
+    pillar_map = _DISPATCH.get(pillar, _DISPATCH["general"])
+    return pillar_map.get(report_type) or pillar_map.get("*") or list(pillar_map.values())[0]
 
 
 def query_node(state: FraudReportState) -> Dict[str, Any]:
     import time, logging
     _t0 = time.time()
 
-    # Clear pipeline cache so this request gets a fresh run (not stale data from prior session)
     _pipeline_cache.clear()
 
-    llm = get_llm(temperature=0.0)
-    llm_with_tools = llm.bind_tools(ALL_TOOLS)
+    dr          = state.get("date_range", {})
+    start_date  = dr.get("start", "")
+    end_date    = dr.get("end", "")
+    pillar      = state.get("fraud_pillar", "general")
+    report_type = state.get("report_type", "weekly")
 
-    dr = state.get("date_range", {})
-    start_date = dr.get("start", "")
-    end_date = dr.get("end", "")
-    existing_results: Dict[str, Any] = dict(state.get("query_results") or {})
+    existing_results: Dict[str, Any]  = dict(state.get("query_results") or {})
     existing_analysis: Dict[str, Any] = dict(state.get("analysis_results") or {})
 
-    system_content = _SYSTEM.format(
-        report_type=state.get("report_type", "weekly"),
-        fraud_pillar=state.get("fraud_pillar", "general"),
-        tables_to_use=state.get("tables_to_use", []),
-        start_date=start_date,
-        end_date=end_date,
-        retry_count=state.get("retry_count", 0),
-        already_called=list(existing_results.keys()) + list(existing_analysis.keys()),
-    )
-
-    messages = [
-        SystemMessage(content=system_content),
-        HumanMessage(content=(
-            f"Run the pipeline and analyze: {state.get('fraud_pillar', 'general')} "
-            f"({state.get('report_type', 'weekly')}) from {start_date} to {end_date}."
-        )),
-    ]
-
-    new_query_results: Dict[str, Any] = {}
+    new_query_results: Dict[str, Any]  = {}
     new_analysis_results: Dict[str, Any] = {}
 
-    for _ in range(_MAX_LOOP):
-        response = llm_with_tools.invoke(messages)
-        messages.append(response)
+    # Step 1 — run pipeline once (populates _pipeline_cache)
+    if "tool_run_pipeline" not in existing_results:
+        try:
+            pipeline_summary = tool_run_pipeline.invoke({"start_date": start_date, "end_date": end_date})
+            new_query_results["tool_run_pipeline"] = pipeline_summary
+            for tbl in ["fraud_monthly_loss", "fraud_weekly_loss",
+                        "promo_weekly_abuse", "coin2dd_monthly", "appid_fraud_breakdown"]:
+                if tbl in _pipeline_cache:
+                    new_query_results[tbl] = _pipeline_cache[tbl]
+        except Exception as exc:
+            logging.getLogger(__name__).error("pipeline error: %s", exc)
 
-        if not getattr(response, "tool_calls", None):
-            break
+    # Step 2 — run analysis functions directly based on pillar (no LLM needed)
+    for fn in _get_analysis_fns(pillar, report_type):
+        if fn.name in existing_analysis:
+            continue
+        try:
+            new_analysis_results[fn.name] = fn.invoke({})
+        except Exception as exc:
+            logging.getLogger(__name__).error("analysis error %s: %s", fn.name, exc)
 
-        for tc in response.tool_calls:
-            tool_name = tc["name"]
-            all_done = {**new_query_results, **new_analysis_results,
-                        **existing_results, **existing_analysis}
-            if tool_name in all_done:
-                messages.append(ToolMessage(
-                    content=str(all_done[tool_name]), tool_call_id=tc["id"]
-                ))
-                continue
-
-            tool_fn = _TOOL_MAP.get(tool_name)
-            if tool_fn is None:
-                result = f"Unknown tool: {tool_name}"
-            else:
-                try:
-                    result = tool_fn.invoke(tc["args"])
-                except Exception as exc:
-                    result = f"Tool error: {exc}"
-
-            # Route to correct bucket; store full pipeline tables for downstream nodes
-            if tool_name == "tool_run_pipeline":
-                new_query_results[tool_name] = result
-                for tbl in ["fraud_monthly_loss", "fraud_weekly_loss",
-                            "promo_weekly_abuse", "coin2dd_monthly", "appid_fraud_breakdown"]:
-                    if tbl in _pipeline_cache:
-                        new_query_results[tbl] = _pipeline_cache[tbl]
-            else:
-                new_analysis_results[tool_name] = result
-
-            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
-
-    merged_query = {**existing_results, **new_query_results}
+    merged_query    = {**existing_results, **new_query_results}
     merged_analysis = {**existing_analysis, **new_analysis_results}
 
     logging.getLogger(__name__).info("TIMING query_node %.1fs", time.time() - _t0)
     return {
-        "query_results": merged_query,
+        "query_results":    merged_query,
         "analysis_results": merged_analysis,
         "messages": state.get("messages", []) + [{
             "role": "query",

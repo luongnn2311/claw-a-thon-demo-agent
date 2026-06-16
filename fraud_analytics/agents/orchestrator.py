@@ -75,58 +75,91 @@ def _add_baseline(report_type: str, start: str, end: str) -> tuple[str, str]:
         return start, end
 
 
+_PILLAR_KW = {
+    "fraud_loss":      ["fraud loss", "fraud_loss", "loss report", "tổn thất"],
+    "promo_abuse":     ["promo abuse", "promotion abuse", "promo_abuse", "promo performance",
+                        "promotional", "abuse rate", "bad_v2", "fad"],
+    "coin2dd":         ["coin2dd", "coin to dd", "coin 2 dd", "coin-to-dd"],
+    "appid_breakdown": ["appid", "app id", "appid breakdown", "merchant breakdown"],
+    "general":         ["general", "all pillars", "full report", "overview", "tất cả"],
+}
+_REPORT_TYPE_KW = {
+    "monthly": ["monthly", "month", "tháng"],
+    "weekly":  ["weekly", "week", "tuần"],
+}
+_TABLE_MAP: Dict[str, List[str]] = {
+    "fraud_loss":      ["fraud_monthly_loss", "fraud_weekly_loss"],
+    "promo_abuse":     ["promo_weekly_abuse"],
+    "coin2dd":         ["coin2dd_monthly"],
+    "appid_breakdown": ["appid_fraud_breakdown"],
+    "general":         ["fraud_monthly_loss", "fraud_weekly_loss",
+                        "promo_weekly_abuse", "coin2dd_monthly", "appid_fraud_breakdown"],
+}
+
+
+def _fast_parse(user_request: str):
+    """Return (pillar, report_type) from keywords, or None if ambiguous."""
+    msg = user_request.lower()
+    pillar = None
+    for p, kws in _PILLAR_KW.items():
+        if any(kw in msg for kw in kws):
+            pillar = p
+            break
+    report_type = "weekly"
+    for rt, kws in _REPORT_TYPE_KW.items():
+        if any(kw in msg for kw in kws):
+            report_type = rt
+            break
+    return pillar, report_type
+
+
 def orchestrator_node(state: FraudReportState) -> Dict[str, Any]:
     import logging
     _t0 = time.time()
-    llm = get_llm(temperature=0.0)
 
     today = datetime.now().date()
-    today_str = today.strftime("%Y-%m-%d")
-    system_msg = SystemMessage(content=_SYSTEM.format(today=today_str))
-    human_msg = HumanMessage(content=state["user_request"])
+    user_request = state.get("user_request", "")
 
-    result: OrchestratorOutput = structured_invoke(llm, [system_msg, human_msg], OrchestratorOutput)
+    # Fast path: detect pillar + report_type from keywords — no LLM needed
+    pillar, report_type = _fast_parse(user_request)
 
-    # Override date range with deterministic calculation for standard report types
-    # (LLMs are unreliable at computing "Monday 2 weeks ago" correctly)
-    start, end = result.date_range.start, result.date_range.end
-    if result.report_type == "weekly":
+    if pillar is None:
+        # Fall back to LLM only when keywords are ambiguous
+        llm = get_llm(temperature=0.0)
+        today_str = today.strftime("%Y-%m-%d")
+        result: OrchestratorOutput = structured_invoke(
+            llm,
+            [SystemMessage(content=_SYSTEM.format(today=today_str)),
+             HumanMessage(content=user_request)],
+            OrchestratorOutput,
+        )
+        pillar      = result.fraud_pillar
+        report_type = result.report_type
+
+    if report_type == "weekly":
         start, end = _default_weekly_range(today)
-    elif result.report_type == "monthly":
+    elif report_type == "monthly":
         start, end = _default_monthly_range(today)
+    else:
+        start, end = _default_weekly_range(today)
 
-    # Extend start backward by one period to include the WoW/MoM baseline
-    start, end = _add_baseline(result.report_type, start, end)
-
-    # Determine which tables to use based on pillar
-    pillar = result.fraud_pillar
-    table_map: Dict[str, List[str]] = {
-        "fraud_loss":      ["fraud_monthly_loss", "fraud_weekly_loss"],
-        "promo_abuse":     ["promo_weekly_abuse"],
-        "coin2dd":         ["coin2dd_monthly"],
-        "appid_breakdown": ["appid_fraud_breakdown"],
-        "general":         ["fraud_monthly_loss", "fraud_weekly_loss",
-                            "promo_weekly_abuse", "coin2dd_monthly", "appid_fraud_breakdown"],
-    }
-    tables_to_use = table_map.get(pillar, table_map["general"])
+    start, end = _add_baseline(report_type, start, end)
+    tables_to_use = _TABLE_MAP.get(pillar, _TABLE_MAP["general"])
 
     logging.getLogger(__name__).info("TIMING orchestrator_node %.1fs", time.time() - _t0)
     return {
-        "report_type":   result.report_type,
+        "report_type":   report_type,
         "date_range":    {"start": start, "end": end},
         "fraud_pillar":  pillar,
         "tables_to_use": tables_to_use,
         "retry_count":   0,
         "total_node_visits": 1,
         "pipeline_start_time": time.time(),
-        "messages": state.get("messages", []) + [
-            {
-                "role": "orchestrator",
-                "content": (
-                    f"type={result.report_type} pillar={pillar} "
-                    f"tables={tables_to_use} "
-                    f"range={start}→{end}"
-                ),
-            }
-        ],
+        "messages": state.get("messages", []) + [{
+            "role": "orchestrator",
+            "content": (
+                f"type={report_type} pillar={pillar} "
+                f"tables={tables_to_use} range={start}→{end}"
+            ),
+        }],
     }
