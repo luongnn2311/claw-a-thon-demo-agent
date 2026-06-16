@@ -18,6 +18,19 @@ from fraud_analytics.tools.analysis import (
     analyze_appid_breakdown,
 )
 
+# ── Pipeline cache ─────────────────────────────────────────────────────────────
+# Populated once by tool_run_pipeline, reused by all tool_analyze_* in the same
+# query_node call. Cleared at the start of each query_node invocation.
+_pipeline_cache: Dict[str, Any] = {}
+
+
+def _get_pipeline_result() -> Dict[str, Any]:
+    """Return cached pipeline result, running with no date filter if not yet cached."""
+    if not _pipeline_cache:
+        _pipeline_cache.update(run_pipeline())
+    return _pipeline_cache
+
+
 # ── LangChain tools wrapping the pipeline + analysis functions ────────────────
 
 @tool
@@ -27,6 +40,8 @@ def tool_run_pipeline(start_date: str = "", end_date: str = "") -> dict:
     Call this first before any analysis.
     Args: start_date and end_date in YYYY-MM-DD format (optional)."""
     result = run_pipeline(start_date or None, end_date or None)
+    _pipeline_cache.clear()
+    _pipeline_cache.update(result)
     # Return only table summaries to keep token usage manageable
     summary = {"success": result.get("success"), "tables_computed": result.get("tables_computed", [])}
     for table in ["fraud_monthly_loss", "fraud_weekly_loss", "promo_weekly_abuse",
@@ -40,24 +55,21 @@ def tool_run_pipeline(start_date: str = "", end_date: str = "") -> dict:
 def tool_analyze_fraud_monthly() -> list:
     """Run suggest_fraud_monthly analysis on the latest fraud_monthly_loss table.
     Returns prioritized suggestions (CRITICAL/ALERT/WATCH/STABLE/CONFIRM/INVESTIGATE)."""
-    result = run_pipeline()
-    records = result.get("fraud_monthly_loss", [])
+    records = _get_pipeline_result().get("fraud_monthly_loss", [])
     return analyze_fraud_monthly(records)
 
 @tool
 def tool_analyze_fraud_weekly() -> list:
     """Run suggest_fraud_weekly analysis on the latest fraud_weekly_loss table.
     Returns prioritized suggestions for weekly trend."""
-    result = run_pipeline()
-    records = result.get("fraud_weekly_loss", [])
+    records = _get_pipeline_result().get("fraud_weekly_loss", [])
     return analyze_fraud_weekly(records)
 
 @tool
 def tool_analyze_promo_weekly() -> list:
     """Run suggest_promo_weekly analysis on the latest promo_weekly_abuse table.
     Returns prioritized suggestions for promo abuse trend."""
-    result = run_pipeline()
-    records = result.get("promo_weekly_abuse", [])
+    records = _get_pipeline_result().get("promo_weekly_abuse", [])
     return analyze_promo_weekly(records)
 
 @tool
@@ -65,24 +77,21 @@ def tool_analyze_promo_monthly() -> list:
     """Run suggest_promo_monthly analysis: aggregates all weeks in the period to compute
     monthly-level %abuse. Use for monthly reports or when monthly promo context is needed.
     Returns prioritized suggestions using monthly thresholds (normal 1.8–3.5%, alert >5%)."""
-    result = run_pipeline()
-    records = result.get("promo_weekly_abuse", [])
+    records = _get_pipeline_result().get("promo_weekly_abuse", [])
     return analyze_promo_monthly(records)
 
 @tool
 def tool_analyze_coin2dd() -> list:
     """Run suggest_coin2dd analysis on the latest coin2dd_monthly table.
     Returns prioritized suggestions for Coin2DD abuse."""
-    result = run_pipeline()
-    records = result.get("coin2dd_monthly", [])
+    records = _get_pipeline_result().get("coin2dd_monthly", [])
     return analyze_coin2dd(records)
 
 @tool
 def tool_analyze_appid_breakdown() -> list:
     """Run suggest_appid_breakdown analysis on the latest appid_fraud_breakdown table.
     Returns prioritized suggestions for appID concentration and trends."""
-    result = run_pipeline()
-    records = result.get("appid_fraud_breakdown", [])
+    records = _get_pipeline_result().get("appid_fraud_breakdown", [])
     return analyze_appid_breakdown(records)
 
 
@@ -131,6 +140,10 @@ _MAX_LOOP = 10
 def query_node(state: FraudReportState) -> Dict[str, Any]:
     import time, logging
     _t0 = time.time()
+
+    # Clear pipeline cache so this request gets a fresh run (not stale data from prior session)
+    _pipeline_cache.clear()
+
     llm = get_llm(temperature=0.0)
     llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
@@ -187,16 +200,13 @@ def query_node(state: FraudReportState) -> Dict[str, Any]:
                 except Exception as exc:
                     result = f"Tool error: {exc}"
 
-            # Route to correct bucket
+            # Route to correct bucket; store full pipeline tables for downstream nodes
             if tool_name == "tool_run_pipeline":
                 new_query_results[tool_name] = result
-                # Also store the full pipeline output for downstream nodes
-                if isinstance(result, dict) and result.get("success"):
-                    full = run_pipeline(start_date or None, end_date or None)
-                    for tbl in ["fraud_monthly_loss", "fraud_weekly_loss",
-                                "promo_weekly_abuse", "coin2dd_monthly", "appid_fraud_breakdown"]:
-                        if tbl in full:
-                            new_query_results[tbl] = full[tbl]
+                for tbl in ["fraud_monthly_loss", "fraud_weekly_loss",
+                            "promo_weekly_abuse", "coin2dd_monthly", "appid_fraud_breakdown"]:
+                    if tbl in _pipeline_cache:
+                        new_query_results[tbl] = _pipeline_cache[tbl]
             else:
                 new_analysis_results[tool_name] = result
 
