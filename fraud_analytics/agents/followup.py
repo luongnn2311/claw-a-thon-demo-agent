@@ -174,14 +174,18 @@ You help with THREE types of questions:
      or anything in the source CSV files. Use query_input_files.
 
 TOOL USAGE RULES — follow strictly:
-1. get_raw_table / get_*_detail tools
+1. "last N weeks" / "last N months" / multi-period requests
+   → ALWAYS use get_raw_table — NEVER use get_fraud_weekly_detail or get_fraud_monthly_detail
+   → table_name: fraud_weekly_loss (fraud weekly), promo_weekly_abuse (promo), fraud_monthly_loss (fraud monthly), coin2dd_monthly (Coin2DD)
+   → After getting the table, present ALL returned rows within the requested period; do not truncate to the latest row only
+2. get_raw_table / get_*_detail tools
    → call when the user asks for specific metrics/figures from the summary output tables
    → the tool returns a pre-formatted markdown table — pass it through to the user AS-IS, do not reformat
-2. query_input_files
+3. query_input_files
    → call when the user asks about raw/source data: individual transactions, specific users,
      campaign details, or custom aggregations on input files
    → the tool generates and runs pandas code and returns a markdown table — pass it through AS-IS
-3. search_fintech_web
+4. search_fintech_web
    → call when:
       a. The user explicitly asks to search / look online, OR
       b. The question is about an industry concept not covered by local knowledge

@@ -1,6 +1,7 @@
 from __future__ import annotations
+import re
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, date, timedelta
 from calendar import monthrange
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -43,21 +44,47 @@ Today's date: {today}
 Respond with structured output only."""
 
 
-def _default_weekly_range(today: date) -> tuple[str, str]:
+def _default_weekly_range(today: date) -> Tuple[str, str]:
     """Last complete Mon–Sun week. Returns (start, end) as YYYY-MM-DD strings."""
-    # dayofweek: Mon=0 … Sun=6
-    days_since_sunday = (today.weekday() + 1) % 7  # days since last Sunday
+    days_since_sunday = (today.weekday() + 1) % 7
     last_sunday = today - timedelta(days=days_since_sunday)
     last_monday = last_sunday - timedelta(days=6)
     return last_monday.strftime("%Y-%m-%d"), last_sunday.strftime("%Y-%m-%d")
 
 
-def _default_monthly_range(today: date) -> tuple[str, str]:
+def _default_monthly_range(today: date) -> Tuple[str, str]:
     """Last complete calendar month. Returns (start, end) as YYYY-MM-DD strings."""
     first_this_month = today.replace(day=1)
     last_month_end   = first_this_month - timedelta(days=1)
     last_month_start = last_month_end.replace(day=1)
     return last_month_start.strftime("%Y-%m-%d"), last_month_end.strftime("%Y-%m-%d")
+
+
+def _parse_n_periods(user_request: str) -> Tuple[Optional[int], Optional[str]]:
+    """Detect 'last N weeks' or 'last N months'. Returns (n, unit) or (None, None)."""
+    m = re.search(r'last\s+(\d+)\s+(week|month)', user_request.lower())
+    if m:
+        return int(m.group(1)), m.group(2)
+    return None, None
+
+
+def _n_weeks_range(today: date, n: int) -> Tuple[str, str]:
+    """Date range covering the last N complete Mon–Sun weeks."""
+    days_since_sunday = (today.weekday() + 1) % 7
+    last_sunday = today - timedelta(days=days_since_sunday)
+    start_monday = last_sunday - timedelta(days=7 * n - 1)
+    return start_monday.strftime("%Y-%m-%d"), last_sunday.strftime("%Y-%m-%d")
+
+
+def _n_months_range(today: date, n: int) -> Tuple[str, str]:
+    """Date range covering the last N complete calendar months."""
+    first_this_month = today.replace(day=1)
+    end = first_this_month - timedelta(days=1)
+    start = end
+    for _ in range(n - 1):
+        start = start.replace(day=1) - timedelta(days=1)
+    start = start.replace(day=1)
+    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
 def _add_baseline(report_type: str, start: str, end: str) -> tuple[str, str]:
@@ -136,7 +163,15 @@ def orchestrator_node(state: FraudReportState) -> Dict[str, Any]:
         pillar      = result.fraud_pillar
         report_type = result.report_type
 
-    if report_type == "weekly":
+    # Check for "last N weeks/months" before defaulting to single-period range
+    n, unit = _parse_n_periods(user_request)
+    if n and unit == "week":
+        report_type = "weekly"
+        start, end = _n_weeks_range(today, n)
+    elif n and unit == "month":
+        report_type = "monthly"
+        start, end = _n_months_range(today, n)
+    elif report_type == "weekly":
         start, end = _default_weekly_range(today)
     elif report_type == "monthly":
         start, end = _default_monthly_range(today)
