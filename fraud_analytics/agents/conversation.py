@@ -105,6 +105,37 @@ _GREETINGS = {
     "yo", "sup", "howdy", "good morning", "good afternoon", "good evening",
 }
 
+# Fast-path routing: if message contains a clear pillar keyword + report intent,
+# skip the LLM entirely and route directly to proceed.
+_PILLAR_KEYWORDS = {
+    "promo_abuse":      ["promo abuse", "promotion abuse", "promo_abuse", "promo performance",
+                         "promotional", "abuse rate", "bad_v2", "fad detection"],
+    "fraud_loss":       ["fraud loss", "fraud_loss", "fraud losses", "loss report",
+                         "tổn thất gian lận"],
+    "coin2dd":          ["coin2dd", "coin to dd", "coin 2 dd", "coin-to-dd"],
+    "appid_breakdown":  ["appid breakdown", "app id breakdown", "appid_breakdown",
+                         "merchant breakdown", "by appid", "by merchant"],
+    "general":          ["all pillars", "all domains", "full report", "tất cả",
+                         "general report", "overview"],
+}
+_REPORT_INTENT = [
+    "report", "analyze", "analysis", "give me", "show me", "generate",
+    "run report", "weekly", "monthly", "performance of", "performance for",
+    "performance", "báo cáo", "phân tích",
+]
+
+
+def _fast_route(user_request: str):
+    """Return action='proceed' if message clearly signals a report for a known pillar."""
+    msg = user_request.lower()
+    if not any(kw in msg for kw in _REPORT_INTENT):
+        return None
+    for pillar, keywords in _PILLAR_KEYWORDS.items():
+        if any(kw in msg for kw in keywords):
+            return pillar
+    return None
+
+
 def conversation_node(state: FraudReportState) -> Dict[str, Any]:
     import time, logging
     _t0 = time.time()
@@ -130,6 +161,29 @@ def conversation_node(state: FraudReportState) -> Dict[str, Any]:
             "agent_message": _WELCOME,
             "conversation_history": updated_history,
         }
+
+    # Fast path: skip LLM for clear report requests
+    fast_pillar = _fast_route(user_request)
+    if fast_pillar:
+        logging.getLogger(__name__).info("TIMING conversation_node fast-route→proceed pillar=%s", fast_pillar)
+        updates: Dict[str, Any] = {
+            "next_action": "proceed",
+            "agent_message": "",
+            "conversation_history": list(history),
+            "final_report": "",
+            "report_type": "",
+            "fraud_pillar": "",
+            "tables_to_use": [],
+            "date_range": {},
+            "retrieved_documents": [],
+            "query_results": {},
+            "analysis_results": {},
+            "summaries": [],
+            "findings": [],
+            "validation_result": {},
+            "retry_count": 0,
+        }
+        return updates
 
     llm = get_llm(temperature=0.1)
 
