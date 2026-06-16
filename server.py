@@ -467,9 +467,16 @@ async def teams_messages(req: Request):
         if agent_message:
             await turn_context.send_activity(agent_message)
 
-    await adapter.process_activity(activity, auth_header, on_turn)
     from fastapi.responses import Response
-    return Response(status_code=200)
+    try:
+        await adapter.process_activity(activity, auth_header, on_turn)
+        return Response(status_code=200)
+    except PermissionError as exc:
+        log.warning("Teams auth rejected: %s", exc)
+        return Response(status_code=401)
+    except Exception as exc:
+        log.exception("Teams /api/messages error: %s", exc)
+        return Response(status_code=500)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
