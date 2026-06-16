@@ -38,9 +38,20 @@ def _route_after_validation(state: FraudReportState) -> str:
     if validation.get("validated", False):
         return "report"
     next_step = validation.get("next_step", "report")
-    if next_step in ("query", "retrieval"):
-        return next_step
+    if next_step == "retrieval":
+        # Need fresh knowledge docs only — skip query+summarizer, go retrieval → reasoning
+        return "retrieval"
+    if next_step == "query":
+        # Data is already in state — skip query+summarizer, re-reason with targeted feedback
+        return "reasoning"
     return "report"
+
+
+def _route_after_retrieval(state: FraudReportState) -> str:
+    # On a validation retry (feedback is set), go straight to reasoning — skip query+summarizer
+    if state.get("validation_feedback"):
+        return "reasoning"
+    return "query"
 
 
 def _route_conversation(state: FraudReportState) -> str:
@@ -81,7 +92,11 @@ def _add_pipeline(graph: StateGraph) -> None:
     graph.add_node("report", report_node)
 
     graph.add_edge("orchestrator", "retrieval")
-    graph.add_edge("retrieval", "query")
+    graph.add_conditional_edges(
+        "retrieval",
+        _route_after_retrieval,
+        {"query": "query", "reasoning": "reasoning"},
+    )
     graph.add_edge("query", "summarizer")
     graph.add_edge("summarizer", "reasoning")
     graph.add_edge("reasoning", "validation")
@@ -89,7 +104,7 @@ def _add_pipeline(graph: StateGraph) -> None:
     graph.add_conditional_edges(
         "validation",
         _route_after_validation,
-        {"query": "query", "retrieval": "retrieval", "report": "report"},
+        {"reasoning": "reasoning", "retrieval": "retrieval", "report": "report"},
     )
 
 

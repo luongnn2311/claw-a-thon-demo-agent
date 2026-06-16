@@ -23,3 +23,4 @@ class FraudReportState(TypedDict, total=False):
     conversation_history: List[Dict[str, str]]  # full chat transcript
     next_action: str        # "proceed" | "clarify" | "follow_up" | "end"
     agent_message: str      # question / farewell to display to the user
+    validation_feedback: str  # targeted issues from validation_node for reasoning retry

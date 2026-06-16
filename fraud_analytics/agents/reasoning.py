@@ -78,13 +78,18 @@ def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
         end_date=dr.get("end", "N/A"),
     )
 
+    validation_feedback = state.get("validation_feedback") or ""
+    human_content = (
+        "Apply the decision trees above to the analysis findings. "
+        "Produce findings with SPECIFIC numbers and concrete recommended_actions. "
+        "Cover all tables with CRITICAL or ALERT priority findings first."
+    )
+    if validation_feedback:
+        human_content += f"\n\n{validation_feedback}"
+
     messages = [
         SystemMessage(content=system_content),
-        HumanMessage(content=(
-            "Apply the decision trees above to the analysis findings. "
-            "Produce findings with SPECIFIC numbers and concrete recommended_actions. "
-            "Cover all tables with CRITICAL or ALERT priority findings first."
-        )),
+        HumanMessage(content=human_content),
     ]
 
     result: FraudAnalysisOutput = structured_invoke(llm, messages, FraudAnalysisOutput)
@@ -94,6 +99,7 @@ def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
     logging.getLogger(__name__).info("TIMING reasoning_node %.1fs", time.time() - _t0)
     return {
         "findings": findings,
+        "validation_feedback": "",  # consumed — clear so it doesn't bleed into next cycle
         "messages": state.get("messages", []) + [{
             "role": "reasoning",
             "content": (

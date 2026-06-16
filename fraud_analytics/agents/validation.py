@@ -201,9 +201,24 @@ def validation_node(state: FraudReportState) -> Dict[str, Any]:
 
     new_retry = retry_count + (0 if result.validated else 1)
 
+    # Build targeted feedback for reasoning_node to act on (cleared on pass)
+    if not result.validated and result.issues_found:
+        feedback_lines = [
+            f"VALIDATION FAILED (attempt {new_retry}/{MAX_VALIDATION_RETRIES}) — fix these issues:\n"
+        ]
+        for i, issue in enumerate(result.issues_found, 1):
+            feedback_lines.append(
+                f"{i}. [{issue.severity.upper()}] {issue.issue}\n"
+                f"   Fix: {issue.suggested_fix}"
+            )
+        validation_feedback = "\n".join(feedback_lines)
+    else:
+        validation_feedback = ""
+
     logging.getLogger(__name__).info("TIMING validation_node %.1fs", time.time() - _t0)
     return {
         "validation_result": result.model_dump(),
+        "validation_feedback": validation_feedback,
         "retry_count": new_retry,
         "messages": state.get("messages", []) + [{
             "role": "validation",
