@@ -51,7 +51,7 @@ Scope: {report_type} | {fraud_pillar} | {start_date} to {end_date}"""
 def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
     import time, logging
     _t0 = time.time()
-    llm = get_llm(temperature=0.3, max_tokens=800)
+    llm = get_llm(temperature=0.3, max_tokens=1500)
 
     docs = state.get("retrieved_documents") or []
     summaries = state.get("summaries") or []
@@ -94,7 +94,13 @@ def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
 
     result: FraudAnalysisOutput = structured_invoke(llm, messages, FraudAnalysisOutput)
 
-    findings = [f.model_dump() for f in result.findings]
+    if result is None:
+        logging.getLogger(__name__).warning("reasoning_node: structured_invoke returned None — LLM output truncated, using empty findings")
+        findings = []
+        overall_risk = "WATCH"
+    else:
+        findings = [f.model_dump() for f in result.findings]
+        overall_risk = result.overall_risk_level
 
     logging.getLogger(__name__).info("TIMING reasoning_node %.1fs", time.time() - _t0)
     return {
@@ -104,7 +110,7 @@ def reasoning_node(state: FraudReportState) -> Dict[str, Any]:
             "role": "reasoning",
             "content": (
                 f"Identified {len(findings)} findings. "
-                f"Overall risk: {result.overall_risk_level}"
+                f"Overall risk: {overall_risk}"
             ),
         }],
     }

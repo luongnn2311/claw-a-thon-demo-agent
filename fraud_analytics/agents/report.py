@@ -6,41 +6,154 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from fraud_analytics.state import FraudReportState
 from fraud_analytics.config import get_llm
 
-_REPORT_SYSTEM = """You are generating a complete ZaloPay Fraud Analytics Report.
-Audience: VP Risk + Fraud Operations team.
-
-Structure the report EXACTLY as follows (no extra sections):
-
-════════════════════════════════════════════════════════════════════════
-  EXECUTIVE SUMMARY
-════════════════════════════════════════════════════════════════════════
-
-[Lead with the single most critical finding + metric]
-[4-6 bullets with specific numbers: loss M VND, % change, threshold comparison]
-[Exactly 3 numbered immediate actions with owner and timeline]
-Under 250 words. Use CRITICAL / ALERT / WATCH / STABLE labels.
+# ── Template: Weekly Fraud Loss ───────────────────────────────────────────────
+_WEEKLY_FRAUD_TEMPLATE = """You are generating a ZaloPay Weekly Fraud Loss Report.
+Use EXACTLY this structure — no extra sections, no deviation:
 
 ════════════════════════════════════════════════════════════════════════
-  DETAILED ANALYST REPORT
+  WEEKLY FRAUD LOSS REPORT — {title}
 ════════════════════════════════════════════════════════════════════════
 
-# ZaloPay Fraud Risk Report — {title}
-**Period:** {start_date} → {end_date} | **Generated:** {generated_at}
+**HEADLINE**
+Week of [date]: total fraud loss [X]M VND, [up/down] [%] WoW ([prev]M → [curr]M).
+Primary driver: [segment] [direction] driven by [appID/pattern].
+[Alert level: CRITICAL / ALERT / WATCH / STABLE] — [action required if any].
 
-## 1. KPI Summary
-Headline metric + direction (MoM% or WoW%) + segment driver per relevant table.
+**SEGMENT BREAKDOWN**
+For each segment with notable movement, one line each:
+  [Segment]: [X]M VND ([±%] WoW) — [brief reason/pattern]
 
-## 2. Segment Analysis
-One paragraph per segment with significant movement (>100M VND MoM / >20% WoW).
+**INVESTIGATION PRIORITIES**
+PRIORITY 1 — [CRITICAL/ALERT/WATCH]: [title]
+  Data: [specific metric] = [value] vs threshold [threshold value]
+  Root cause hypothesis: [pattern]
+  Next action: [specific operational action with owner and timeline]
 
-## 3. Investigation Priorities
-Top 3: each with priority label, specific metric vs threshold, root cause hypothesis, next action with owner and timeline.
+PRIORITY 2 — [level]: [title]
+  Data: ...
+  Root cause hypothesis: ...
+  Next action: ...
 
-## 4. Promotion Abuse Status (if applicable)
-%abuse metric + WoW direction + detection health.
+PRIORITY 3 — [level]: [title]
+  Data: ...
+  Root cause hypothesis: ...
+  Next action: ...
+"""
 
-## 5. Next Actions Table
-Markdown table: | Priority | Action | Owner | Timeline |"""
+# ── Template: Monthly Fraud Loss ──────────────────────────────────────────────
+_MONTHLY_FRAUD_TEMPLATE = """You are generating a ZaloPay Monthly Fraud Loss Report.
+Use EXACTLY this structure:
+
+════════════════════════════════════════════════════════════════════════
+  MONTHLY FRAUD LOSS REPORT — {title}
+════════════════════════════════════════════════════════════════════════
+
+**HEADLINE**
+TotalLoss recorded at [X]B VND ([±%] MoM), [decreased/increased] significantly by [±delta]B VND MoM
+([prev]B → [curr]B), primarily driven by [improvements/deterioration] in [main segment].
+
+**SEGMENT ANALYSIS**
+For each segment with significant movement (>100M VND MoM):
+
+[Segment — IMPROVING]:
+[Segment] dropped by [±delta]M VND MoM ([prev]M → [curr]M).
+Controls deployed on [control target] continued to perform effectively.
+However, [remaining risk or residual pattern].
+In next month, ACR will [next action].
+
+[Segment — WORSENING]:
+[Segment] increased by [+delta]M VND MoM ([prev]M → [curr]M),
+primarily driven by [appID/BIN/pattern].
+ACR will [specific next action] to address [specific risk].
+
+**INVESTIGATION PRIORITIES**
+PRIORITY 1 — [CRITICAL/ALERT/WATCH]: [title]
+  Data: [specific metric] = [value] vs threshold [threshold value]
+  Root cause hypothesis: [pattern]
+  Next action: [specific operational action with owner and timeline]
+
+PRIORITY 2 — [level]: [title]
+  Data: ...
+  Root cause hypothesis: ...
+  Next action: ...
+
+PRIORITY 3 — [level]: [title]
+  Data: ...
+  Root cause hypothesis: ...
+  Next action: ...
+"""
+
+# ── Template: Weekly Promo Abuse ──────────────────────────────────────────────
+_WEEKLY_PROMO_TEMPLATE = """You are generating a ZaloPay Weekly Promo Abuse Report.
+Use EXACTLY this structure:
+
+════════════════════════════════════════════════════════════════════════
+  WEEKLY PROMO ABUSE REPORT — {title}
+════════════════════════════════════════════════════════════════════════
+
+**HEADLINE**
+Week of [date]: totalSpending=[X]M VND, totalAbuse=[Y]M VND, %abuse=[Z]%.
+[Increasing/decreasing/stable] compared to prior week ([WoW%] change).
+[Main driver if spike]: primarily driven by [campaign/appID/pattern].
+[If pct_abuse < 1.5%]: Note: unusually low — likely visibility loss, not improvement.
+
+**DETECTION HEALTH**
+BAD_V2: [status — active/degraded/dropped]
+FAD: [status]
+[If both declining]: Detection degraded since [date]. Manual review required.
+
+**INVESTIGATION PRIORITIES**
+PRIORITY 1 — [RED FLAG/ALERT/WATCH]: [campaign or pattern name]
+  %abuse: [value]% vs threshold [3%/4%]
+  Top campaign: [campaignCode] — [amount] abuse
+  Detection source status: [BAD_V2 / FAD health]
+  Next action: [specific action with owner — RPO PRE / DS team]
+
+PRIORITY 2 — [level]: [title]
+  ...
+
+PRIORITY 3 — [level]: [title]
+  ...
+"""
+
+# ── Template: General / Coin2DD / AppID / Fallback ────────────────────────────
+_GENERAL_TEMPLATE = """You are generating a ZaloPay Fraud Analytics Report.
+Use EXACTLY this structure:
+
+════════════════════════════════════════════════════════════════════════
+  FRAUD ANALYTICS REPORT — {title}
+════════════════════════════════════════════════════════════════════════
+
+**EXECUTIVE SUMMARY**
+[Lead with the single most critical finding + metric. 3–5 bullets with specific numbers.]
+[Exactly 3 numbered immediate actions with owner and timeline.]
+
+**KEY FINDINGS**
+For each domain with CRITICAL or ALERT findings:
+
+[Domain — CRITICAL/ALERT]:
+[Specific metric] = [value] vs threshold [value]. [Brief narrative.]
+Next action: [specific operational action with owner and timeline]
+
+**INVESTIGATION PRIORITIES**
+PRIORITY 1 — [CRITICAL/ALERT/WATCH]: [title]
+  Data: [specific metric] = [value] vs threshold [threshold value]
+  Root cause hypothesis: [pattern]
+  Next action: [specific operational action with owner and timeline]
+
+PRIORITY 2 — ...
+PRIORITY 3 — ...
+"""
+
+
+def _pick_template(report_type: str, pillar: str) -> str:
+    if pillar == "promo_abuse":
+        return _WEEKLY_PROMO_TEMPLATE
+    if pillar in ("fraud_loss", "appid_breakdown"):
+        if report_type == "monthly":
+            return _MONTHLY_FRAUD_TEMPLATE
+        return _WEEKLY_FRAUD_TEMPLATE
+    return _GENERAL_TEMPLATE
 
 
 def report_node(state: FraudReportState) -> Dict[str, Any]:
@@ -71,17 +184,12 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
         f"ANALYSIS RESULTS (suggest_* outputs):\n{analysis_str}",
     ])
 
-    title = f"{report_type.title()} | {pillar.replace('_', ' ').title()}"
-    system = _REPORT_SYSTEM.format(
-        title=title,
-        start_date=dr.get("start", "N/A"),
-        end_date=dr.get("end", "N/A"),
-        generated_at=generated_at,
-    )
+    title = f"{report_type.title()} | {pillar.replace('_', ' ').title()} | {dr.get('start', 'N/A')} → {dr.get('end', 'N/A')}"
+    system = _pick_template(report_type, pillar).format(title=title)
 
     resp = llm.invoke([
         SystemMessage(content=system),
-        HumanMessage(content=f"Generate the complete fraud report:\n\n{context}"),
+        HumanMessage(content=f"Generate the report using the data below:\n\n{context}"),
     ])
 
     validation_banner = "✅ VALIDATED" if validation.get("validated") else "⚠️  PARTIAL VALIDATION"
@@ -94,11 +202,13 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
     final_report = f"""{resp.content.strip()}
 
 {'═' * 72}
-  VALIDATION STATUS : {validation_banner}
-  CONFIDENCE        : {validation.get('confidence', 'N/A')}
-  NOTES             : {validation.get('validation_notes', 'N/A')}
-  ISSUES            :
+  VALIDATION : {validation_banner}
+  CONFIDENCE : {validation.get('confidence', 'N/A')}
+  NOTES      : {validation.get('validation_notes', 'N/A')}
+  ISSUES     :
 {issues_text}
+{'═' * 72}
+  Generated  : {generated_at}
 {'═' * 72}
 """
 

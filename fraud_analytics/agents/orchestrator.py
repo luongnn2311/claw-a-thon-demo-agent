@@ -76,9 +76,9 @@ def _add_baseline(report_type: str, start: str, end: str) -> tuple[str, str]:
 
 
 _PILLAR_KW = {
-    "fraud_loss":      ["fraud loss", "fraud_loss", "loss report", "tổn thất"],
+    "fraud_loss":      ["fraud loss", "fraud_loss", "loss report", "tổn thất", "fraud loss performance"],
     "promo_abuse":     ["promo abuse", "promotion abuse", "promo_abuse", "promo performance",
-                        "promotional", "abuse rate", "bad_v2", "fad"],
+                        "promotional", "abuse rate", "bad_v2", "fad", "promo", "promotion"],
     "coin2dd":         ["coin2dd", "coin to dd", "coin 2 dd", "coin-to-dd"],
     "appid_breakdown": ["appid", "app id", "appid breakdown", "merchant breakdown"],
     "general":         ["general", "all pillars", "full report", "overview", "tất cả"],

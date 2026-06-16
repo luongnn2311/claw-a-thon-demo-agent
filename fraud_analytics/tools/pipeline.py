@@ -22,10 +22,10 @@ SEGMENT_MAP: Dict[int, str] = {
 }
 
 APPNAME_MAP: Dict[int, str] = {
-    454: "Nạp tiền", 9999: "Apple", 579: "Google Play", 2391: "Thẻ giải trí",
-    6699: "App Store", 4093: "VNPAY", 12: "Thẻ điện thoại",
-    4698: "Mã thẻ Viettel", 4699: "Mã thẻ Vinaphone",
-    149: "Mobile Payment", 3762: "VNGGameShop", 15: "Dịch Vụ",
+    454: "app_1", 9999: "app_9", 579: "app_10", 2391: "app_11",
+    6699: "app_12", 4093: "app_2", 12: "app_3",
+    4698: "app_4", 4699: "app_5",
+    149: "app_7", 3762: "app_8", 15: "app_6",
 }
 
 

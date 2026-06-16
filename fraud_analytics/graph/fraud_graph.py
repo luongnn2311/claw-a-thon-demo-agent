@@ -3,6 +3,7 @@ import time
 from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 from fraud_analytics.state import FraudReportState
+from fraud_analytics.agents.router import route_node
 from fraud_analytics.agents.orchestrator import orchestrator_node
 from fraud_analytics.agents.retrieval import retrieval_node
 from fraud_analytics.agents.query import query_node
@@ -55,11 +56,18 @@ def _route_after_retrieval(state: FraudReportState) -> str:
 
 
 def _route_conversation(state: FraudReportState) -> str:
-    action = state.get("next_action", "proceed")
-    # Guard: unknown actions fall back to proceed
-    if action not in ("proceed", "clarify", "follow_up", "answer", "end"):
-        return "proceed"
+    action = state.get("next_action", "route")
+    if action not in ("route", "clarify", "end"):
+        return "route"
     return action
+
+
+def _route_after_route_node(state: FraudReportState) -> str:
+    decision = state.get("route_decision", "retrieve_knowledge")
+    if decision == "full_pipeline":
+        return "full_pipeline"
+    # query_data and retrieve_knowledge both go to followup — it uses tools as needed
+    return "followup"
 
 
 # ── Human-in-the-loop node ────────────────────────────────────────────────────
@@ -132,25 +140,35 @@ def _build_chat_graph(checkpointer):
 
     graph = StateGraph(FraudReportState)
     graph.add_node("conversation", conversation_node)
+    graph.add_node("router", route_node)
     graph.add_node("human_input", _human_input_node)
     graph.add_node("followup", followup_node)
     _add_pipeline(graph)
     graph.set_entry_point("conversation")
 
+    # conversation: greeting/exit/welcome only — everything else → router
     graph.add_conditional_edges(
         "conversation",
         _route_conversation,
         {
-            "proceed":    "orchestrator",
-            "clarify":    "human_input",
-            "follow_up":  "human_input",
-            "answer":     "followup",
-            "end":        END,
+            "route":   "router",
+            "clarify": "human_input",
+            "end":     END,
         },
     )
+
+    # router: LLM decides which of the three paths to take
+    graph.add_conditional_edges(
+        "router",
+        _route_after_route_node,
+        {
+            "full_pipeline": "orchestrator",
+            "followup":      "followup",
+        },
+    )
+
     graph.add_edge("human_input", "conversation")
     graph.add_edge("followup", "human_input")
-    # Always pause at human_input after a report.
     graph.add_edge("report", "human_input")
 
     return graph.compile(checkpointer=checkpointer)
@@ -168,14 +186,8 @@ def get_chat_graph():
     """
     global _chat_graph, _chat_checkpointer
     if _chat_graph is None:
-        import os
-        memory_id = os.getenv("AGENTBASE_MEMORY_ID", "")
-        if memory_id:
-            from greennode_agent_bridge import AgentBaseMemoryEvents
-            _chat_checkpointer = AgentBaseMemoryEvents(memory_id=memory_id)
-        else:
-            from langgraph.checkpoint.memory import MemorySaver
-            _chat_checkpointer = MemorySaver()
+        from langgraph.checkpoint.memory import MemorySaver
+        _chat_checkpointer = MemorySaver()
         _chat_graph = _build_chat_graph(_chat_checkpointer)
     return _chat_graph
 

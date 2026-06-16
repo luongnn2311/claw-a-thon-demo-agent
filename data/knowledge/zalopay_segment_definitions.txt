@@ -4,33 +4,17 @@ version: 2026-06
 
 ZaloPay Payment Segment Definitions
 
-APPID MASTER TABLE:
-appID | appName                  | merchantID          | merchant       | app_type    | report_cat
-------+--------------------------+---------------------+----------------+-------------+--------------
-454   | Nạp tiền                 | None_MerchantID_454 | Nạp tiền       | Not Payment | Not Payment
-4093  | VNPAY                    | 500201              | VNPAY          | Payment     | PSP
-12    | Thẻ Điện Thoại           | 240129              | Thẻ Điện Thoại | Payment     | Telco
-4698  | Mua Mã Thẻ Cào Viettel   | 504465              | XPAY           | Payment     | Telco
-4699  | Mua Mã Thẻ Cào Vinaphone | 504465              | XPAY           | Payment     | Telco
-15    | Dịch Vụ                  | 180189              | Game VNG       | Payment     | Game
-149   | Mobile Payment           | 180189              | Game VNG       | Payment     | Game
-3762  | VNGGames Shop            | 180189              | Game VNG       | Payment     | Game
-9999  | Apple                    | 498268              | Apple          | Payment     | Entertainment
-579   | Google Play              | 420125              | Google Play    | Payment     | Entertainment
-2391  | Thẻ giải trí             | 240129              | Thẻ giải trí   | Payment     | Telco
-6699  | App Store Card           | 493383              | EURONET        | Payment     | Telco
-
 SEGMENT: domestic_direct
 Description: Wallet top-up via domestic card, Vietnam-issued
-Key appIDs: 454 (Nạp tiền), 4093 (VNPAY/PSP), 12 (Thẻ Điện Thoại/Telco), 4698 (Mã thẻ Viettel/XPAY), 4699 (Mã thẻ Vinaphone/XPAY), 15 (Dịch Vụ/Game VNG)
-Merchants: Nạp tiền (direct), VNPAY (PSP), Thẻ Điện Thoại (Telco), XPAY (Telco), Game VNG (Game)
-Primary risk: ATO (Account Takeover) via stolen domestic cards, VCB cards historically top contributor
+Key appIDs: 454 (app_1), 4093 (app_2/PSP), 12 (app_3/Telco), 4698 (app_4/Telco), 4699 (app_5/Telco), 15 (app_6/Game)
+Merchants: merchant_8 (direct), merchant_7 (PSP), merchant_3 (Telco), merchant_2 (Telco), merchant_1 (Game)
+Primary risk: ATO (Account Takeover) via stolen domestic cards, bank_1 cards historically top contributor
 Control: limit 20M VND/24h/card (deployed 28-Apr-2026)
 
 SEGMENT: international
 Description: International card / gateway transactions
-Key appIDs: 149 (Mobile Payment/Game VNG), 3762 (VNGGames Shop/Game VNG), 9999 (Apple/Entertainment), 579 (Google Play/Entertainment), 2391 (Thẻ giải trí/Telco), 6699 (App Store Card/EURONET/Telco)
-Merchants: Game VNG (149, 3762), Apple (9999), Google Play (579), Thẻ giải trí (2391), EURONET (6699)
+Key appIDs: 149 (app_7/Game), 3762 (app_8/Game), 9999 (app_9/Entertainment), 579 (app_10/Entertainment), 2391 (app_11/Telco), 6699 (app_12/Telco)
+Merchants: merchant_1 (149, 3762), merchant_4 (9999), merchant_5 (579), merchant_3 (2391), merchant_6 (6699)
 report_cat breakdown: Game (149, 3762), Entertainment (9999, 579), Telco (2391, 6699)
 Primary risk: CNP (Card Not Present) via gaming/telco appIDs using international stolen cards
 Control: targeted appID rule → BIN-level limit → foreign BIN blocking
@@ -62,11 +46,11 @@ wallet: pmcID=38 transactions
 domestic_napas: pmcID=39 transactions via BIN/NAPAS path
 
 MERCHANT GROUPINGS:
-Game VNG (merchantID 180189): appIDs 149, 15, 3762
-XPAY (merchantID 504465): appIDs 4698, 4699
-Thẻ Điện Thoại / Thẻ giải trí (merchantID 240129): appIDs 12, 2391
-Apple (merchantID 498268): appID 9999
-Google Play (merchantID 420125): appID 579
-EURONET (merchantID 493383): appID 6699
-VNPAY (merchantID 500201): appID 4093
-Nạp tiền (no merchant): appID 454
+merchant_1 (merchantID 180189): appIDs 149, 15, 3762
+merchant_2 (merchantID 504465): appIDs 4698, 4699
+merchant_3 (merchantID 240129): appIDs 12, 2391
+merchant_4 (merchantID 498268): appID 9999
+merchant_5 (merchantID 420125): appID 579
+merchant_6 (merchantID 493383): appID 6699
+merchant_7 (merchantID 500201): appID 4093
+merchant_8 (no merchant): appID 454

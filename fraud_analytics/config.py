@@ -85,8 +85,8 @@ def _extract_json(text: str) -> str:
     raise ValueError("Incomplete JSON object in LLM response")
 
 
-def _manual_structured_invoke(llm, messages: list, schema: Type[T]) -> T:
-    """Single-attempt manual JSON extraction — no retries."""
+def _manual_structured_invoke(llm, messages: list, schema: Type[T]) -> T | None:
+    """Single-attempt manual JSON extraction. Returns None on any parse failure."""
     from langchain_core.messages import SystemMessage
     schema_hint = json.dumps(schema.model_json_schema(), indent=2)
     instruction = (
@@ -98,9 +98,12 @@ def _manual_structured_invoke(llm, messages: list, schema: Type[T]) -> T:
     if patched and hasattr(patched[0], "content"):
         first = patched[0]
         patched[0] = type(first)(content=first.content + instruction)
-    response = llm.invoke(patched)
-    json_str = _extract_json(response.content)
-    return schema.model_validate(json.loads(json_str))
+    try:
+        response = llm.invoke(patched)
+        json_str = _extract_json(response.content)
+        return schema.model_validate(json.loads(json_str))
+    except Exception:
+        return None
 
 
 def structured_invoke(llm, messages: list, schema: Type[T]) -> T:

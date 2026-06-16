@@ -33,7 +33,9 @@ def get_fraud_monthly_detail() -> list:
 
 @tool
 def get_fraud_weekly_detail() -> list:
-    """Get detailed WoW analysis for the latest weeks in the fraud_weekly_loss table."""
+    """Get flags/alerts for the LATEST WEEK ONLY (compares most recent week vs prior week).
+    Use this ONLY when the user asks about the current week's status or latest WoW change.
+    Do NOT use for multi-week trends or 'last N weeks' requests — use get_raw_table instead."""
     r = run_pipeline()
     return analyze_fraud_weekly(r.get("fraud_weekly_loss", []))
 
@@ -64,7 +66,9 @@ def get_appid_detail() -> list:
 
 @tool
 def get_raw_table(table_name: str) -> str:
-    """Get the latest records from a summary output table as a markdown table (max 20 rows).
+    """Get historical records from a summary output table as a markdown table (up to 20 rows).
+    Use this for: multi-week trends, 'last N weeks/months', historical comparisons, or when
+    the user wants raw data to format themselves.
     table_name must be one of: fraud_monthly_loss, fraud_weekly_loss,
     promo_weekly_abuse, coin2dd_monthly, appid_fraud_breakdown."""
     r = run_pipeline()
@@ -184,11 +188,13 @@ TOOL USAGE RULES — follow strictly:
    → do NOT call if the local knowledge already fully answers the question
 
 ANSWER RULES:
+- FORMAT FIRST: If the user specifies an output format or structure in their question, follow it EXACTLY.
+  Do not impose the standard report template. The user's requested format overrides everything.
 - Open with a one-sentence context anchor when the question is a follow-up (reference the prior topic)
 - When a tool returns a markdown table, present it directly — do not paraphrase or summarize the rows
-- Be concise — 3-8 sentences for concept questions; tables for data questions
 - For concept/domain questions, answer from domain knowledge — no data tools needed
 - For data questions, cite specific numbers with ZaloPay priority labels (CRITICAL / ALERT / WATCH / STABLE)
+- If data covers fewer periods than requested (e.g., user asks for 6 weeks but only 2 available), say so clearly
 - If something truly cannot be answered from any available source, say so clearly
 
 Context available:
