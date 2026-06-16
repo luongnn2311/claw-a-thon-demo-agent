@@ -34,7 +34,7 @@ Sample table data (last 2 rows per table):
 def summarizer_node(state: FraudReportState) -> Dict[str, Any]:
     import time, logging
     _t0 = time.time()
-    llm = get_llm(temperature=0.2)
+    llm = get_llm(temperature=0.2, max_tokens=500)
 
     analysis_results = state.get("analysis_results") or {}
     query_results    = state.get("query_results") or {}

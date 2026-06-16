@@ -120,7 +120,7 @@ def validation_node(state: FraudReportState) -> Dict[str, Any]:
             }],
         }
 
-    llm = get_llm(temperature=0.1)
+    llm = get_llm(temperature=0.1, max_tokens=400)
 
     findings        = state.get("findings") or []
     analysis_results= state.get("analysis_results") or {}

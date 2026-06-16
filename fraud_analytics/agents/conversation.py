@@ -185,7 +185,7 @@ def conversation_node(state: FraudReportState) -> Dict[str, Any]:
         }
         return updates
 
-    llm = get_llm(temperature=0.1)
+    llm = get_llm(temperature=0.1, max_tokens=300)
 
     history_text = (
         "\n".join(f"  {m['role'].upper()}: {m['content']}" for m in history[-12:])

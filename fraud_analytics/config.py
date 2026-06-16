@@ -85,28 +85,8 @@ def _extract_json(text: str) -> str:
     raise ValueError("Incomplete JSON object in LLM response")
 
 
-def structured_invoke(llm, messages: list, schema: Type[T]) -> T:
-    """
-    Invoke the LLM and return a validated Pydantic model.
-
-    Tries three strategies in order:
-      1. json_mode  — response_format={"type":"json_object"} (widely supported)
-      2. function_calling — OpenAI tool-call based structured output
-      3. manual     — plain text response, JSON extracted with regex + Pydantic parse
-    """
-    # Strategy 1: json_mode
-    try:
-        return llm.with_structured_output(schema, method="json_mode").invoke(messages)
-    except Exception:
-        pass
-
-    # Strategy 2: function_calling
-    try:
-        return llm.with_structured_output(schema, method="function_calling").invoke(messages)
-    except Exception:
-        pass
-
-    # Strategy 3: manual JSON extraction
+def _manual_structured_invoke(llm, messages: list, schema: Type[T]) -> T:
+    """Single-attempt manual JSON extraction — no retries."""
     from langchain_core.messages import SystemMessage
     schema_hint = json.dumps(schema.model_json_schema(), indent=2)
     instruction = (
@@ -121,3 +101,32 @@ def structured_invoke(llm, messages: list, schema: Type[T]) -> T:
     response = llm.invoke(patched)
     json_str = _extract_json(response.content)
     return schema.model_validate(json.loads(json_str))
+
+
+def structured_invoke(llm, messages: list, schema: Type[T]) -> T:
+    """
+    Invoke the LLM and return a validated Pydantic model.
+
+    For greennode (Gemma), goes straight to manual JSON extraction —
+    json_mode and function_calling both fail after generating output,
+    wasting 2× the LLM time on failed attempts.
+
+    For openai/anthropic, tries json_mode → function_calling → manual.
+    """
+    if LLM_PROVIDER == "greennode":
+        return _manual_structured_invoke(llm, messages, schema)
+
+    # Strategy 1: json_mode
+    try:
+        return llm.with_structured_output(schema, method="json_mode").invoke(messages)
+    except Exception:
+        pass
+
+    # Strategy 2: function_calling
+    try:
+        return llm.with_structured_output(schema, method="function_calling").invoke(messages)
+    except Exception:
+        pass
+
+    # Strategy 3: manual JSON extraction
+    return _manual_structured_invoke(llm, messages, schema)
