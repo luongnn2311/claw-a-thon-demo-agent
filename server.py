@@ -386,6 +386,12 @@ async def get_conversation_history(session_id: str, actor_id: str = ""):
 
 # ── Microsoft Teams Bot Framework endpoint ────────────────────────────────────
 
+@app.get("/api/messages")
+async def teams_messages_verify():
+    """Endpoint verification probe from Azure Bot / Teams."""
+    return {"status": "ok"}
+
+
 @app.post("/api/messages")
 async def teams_messages(req: Request):
     """Bot Framework endpoint for Microsoft Teams channel."""
