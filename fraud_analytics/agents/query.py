@@ -169,15 +169,39 @@ def query_node(state: FraudReportState) -> Dict[str, Any]:
     merged_query    = {**existing_results, **new_query_results}
     merged_analysis = {**existing_analysis, **new_analysis_results}
 
-    logging.getLogger(__name__).info("TIMING query_node %.1fs", time.time() - _t0)
+    # Update date_range to reflect the actual last available period in the data,
+    # not the orchestrator's calendar guess (which may exceed available data).
+    actual_dr = dict(dr)
+    if report_type == "weekly":
+        tbl = "promo_weekly_abuse" if pillar == "promo_abuse" else "fraud_weekly_loss"
+        rows = _pipeline_cache.get(tbl, [])
+        if rows:
+            last = rows[-1]
+            actual_dr = {
+                "start": last.get("week_start", dr.get("start", "")),
+                "end":   last.get("week_end",   dr.get("end",   "")),
+            }
+    elif report_type == "monthly":
+        tbl = "coin2dd_monthly" if pillar == "coin2dd" else "fraud_monthly_loss"
+        rows = _pipeline_cache.get(tbl, [])
+        if rows:
+            last = rows[-1]
+            actual_dr = {
+                "start": last.get("period_start", dr.get("start", "")),
+                "end":   last.get("period_end",   dr.get("end",   "")),
+            }
+
+    logging.getLogger(__name__).info("TIMING query_node %.1fs | actual_dr=%s", time.time() - _t0, actual_dr)
     return {
         "query_results":    merged_query,
         "analysis_results": merged_analysis,
+        "date_range":       actual_dr,
         "messages": state.get("messages", []) + [{
             "role": "query",
             "content": (
                 f"Pipeline: {list(new_query_results.keys())} | "
-                f"Analysis: {list(new_analysis_results.keys())}"
+                f"Analysis: {list(new_analysis_results.keys())} | "
+                f"date_range: {actual_dr}"
             ),
         }],
     }

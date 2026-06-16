@@ -94,8 +94,8 @@ Use EXACTLY this structure:
 ════════════════════════════════════════════════════════════════════════
 
 **HEADLINE**
-Week of [date]: totalSpending=[X]M VND, totalAbuse=[Y]M VND, %abuse=[Z]%.
-[Increasing/decreasing/stable] compared to prior week ([WoW%] change).
+Week of [week_start date from raw data]: totalSpending=[fill from total_spending field]M VND, totalAbuse=[fill from total_abuse field]M VND, %abuse=[fill from pct_abuse field]%.
+[Increasing/decreasing/stable] compared to prior week ([WoW% from abuse_trend field] change).
 [Main driver if spike]: primarily driven by [campaign/appID/pattern].
 [If pct_abuse < 1.5%]: Note: unusually low — likely visibility loss, not improvement.
 
@@ -169,6 +169,7 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
     validation    = state.get("validation_result") or {}
     summaries     = state.get("summaries") or []
     analysis      = state.get("analysis_results") or {}
+    query_results = state.get("query_results") or {}
     dr            = state.get("date_range", {})
     report_type   = state.get("report_type", "weekly")
     pillar        = state.get("fraud_pillar", "general")
@@ -179,14 +180,37 @@ def report_node(state: FraudReportState) -> Dict[str, Any]:
     except Exception:
         analysis_str = str(analysis)[:1500]
 
-    context = "\n\n".join([
+    # Include last 2 rows of the relevant raw table so the LLM can fill in exact numbers
+    def _raw_snippet(table: str, n: int = 2) -> str:
+        rows = query_results.get(table, [])
+        if not rows:
+            return ""
+        try:
+            return json.dumps(rows[-n:], indent=2, default=str)
+        except Exception:
+            return str(rows[-n:])
+
+    if pillar == "promo_abuse":
+        raw_data = f"RAW PROMO WEEKLY TABLE (last 2 rows — use these for totalSpending/totalAbuse/pct_abuse):\n{_raw_snippet('promo_weekly_abuse')}"
+    elif pillar in ("fraud_loss", "general"):
+        tbl = "fraud_weekly_loss" if report_type == "weekly" else "fraud_monthly_loss"
+        raw_data = f"RAW {'WEEKLY' if report_type == 'weekly' else 'MONTHLY'} LOSS TABLE (last 2 rows):\n{_raw_snippet(tbl)}"
+    elif pillar == "appid_breakdown":
+        raw_data = f"RAW APPID BREAKDOWN (last 5 rows):\n{_raw_snippet('appid_fraud_breakdown', 5)}"
+    elif pillar == "coin2dd":
+        raw_data = f"RAW COIN2DD TABLE (last 2 rows):\n{_raw_snippet('coin2dd_monthly')}"
+    else:
+        raw_data = ""
+
+    context = "\n\n".join(filter(None, [
         f"REPORT TYPE: {report_type} | PILLAR: {pillar}",
         f"PERIOD: {dr.get('start')} to {dr.get('end')}",
         f"VALIDATION: confidence={validation.get('confidence', 'N/A')}, validated={validation.get('validated')}",
+        raw_data,
         f"FINDINGS ({len(findings)}):\n" + json.dumps(findings, indent=2, default=str)[:1500],
         f"NARRATIVE SUMMARIES:\n" + "\n\n".join(summaries[:5]),
         f"ANALYSIS RESULTS (suggest_* outputs):\n{analysis_str}",
-    ])
+    ]))
 
     title = f"{report_type.title()} | {pillar.replace('_', ' ').title()} | {dr.get('start', 'N/A')} → {dr.get('end', 'N/A')}"
     system = _pick_template(report_type, pillar).format(title=title)
