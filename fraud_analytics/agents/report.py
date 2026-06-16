@@ -24,6 +24,7 @@ For each segment with notable movement, one line each:
   [Segment]: [X]M VND ([±%] WoW) — [brief reason/pattern]
 
 **INVESTIGATION PRIORITIES**
+
 PRIORITY 1 — [CRITICAL/ALERT/WATCH]: [title]
   Data: [specific metric] = [value] vs threshold [threshold value]
   Root cause hypothesis: [pattern]
@@ -67,6 +68,7 @@ primarily driven by [appID/BIN/pattern].
 ACR will [specific next action] to address [specific risk].
 
 **INVESTIGATION PRIORITIES**
+
 PRIORITY 1 — [CRITICAL/ALERT/WATCH]: [title]
   Data: [specific metric] = [value] vs threshold [threshold value]
   Root cause hypothesis: [pattern]
@@ -103,6 +105,7 @@ FAD: [status]
 [If both declining]: Detection degraded since [date]. Manual review required.
 
 **INVESTIGATION PRIORITIES**
+
 PRIORITY 1 — [RED FLAG/ALERT/WATCH]: [campaign or pattern name]
   %abuse: [value]% vs threshold [3%/4%]
   Top campaign: [campaignCode] — [amount] abuse
@@ -136,6 +139,7 @@ For each domain with CRITICAL or ALERT findings:
 Next action: [specific operational action with owner and timeline]
 
 **INVESTIGATION PRIORITIES**
+
 PRIORITY 1 — [CRITICAL/ALERT/WATCH]: [title]
   Data: [specific metric] = [value] vs threshold [threshold value]
   Root cause hypothesis: [pattern]
