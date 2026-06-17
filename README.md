@@ -1,6 +1,27 @@
 # ZaloPay Fraud Analytics Assistant
 
-A production-grade multi-agent fraud assistant built with **LangGraph** for ZaloPay. The agent acts as a domain expert — it can answer general fraud questions, retrieve domain knowledge, and generate detailed fraud analysis reports through a conversational interface.
+## Problem
+
+Fraud in digital payments moves fast, and data is scattered across multiple sources. Risk teams are forced to manually query, aggregate, and write reports — a process that can take hours, while fraud can escalate in minutes.
+
+## User
+
+ZaloPay risk analysts and fraud operations teams who need to monitor transaction health, investigate anomalies, and produce structured reports — without the overhead of manual data work.
+
+## How the Agent Solves It
+
+ZaloPay Fraud Analytics Assistant eliminates that delay with a multi-agent AI system that covers the entire risk analysis loop in a single conversational interface: answering business questions about the risk system, automatically querying and processing transaction data, analyzing trends over time, investigating anomalies, and generating structured reports with clear action priorities.
+
+Users simply ask a question in natural language. The entire pipeline — from data retrieval and root cause reasoning to report generation — completes in under a minute.
+
+## Value Brought
+
+- **Speed** — hours of manual analysis compressed into under a minute
+- **Coverage** — fraud loss, promo abuse, Coin2DD, and merchant breakdowns in one place
+- **Clarity** — every report includes severity labels (CRITICAL / ALERT / WATCH / STABLE) and explicit action priorities
+- **Accessibility** — no SQL, no dashboards; plain natural language is enough
+
+---
 
 **Live demo:** *(endpoint URL available on GreenNode AgentBase console)*
 
